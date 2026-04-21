@@ -1,0 +1,40 @@
+{
+  "name": "optibook-backend",
+  "version": "1.0.0",
+  "description": "OptiBook Backend API - Smart Optical Clinic Scheduling System",
+  "main": "src/server.js",
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "nodemon src/server.js",
+    "test": "jest",
+    "seed": "node src/utils/seed.js",
+    "seed:demo": "node src/utils/seedDemo.js"
+  },
+  "keywords": [
+    "optibook",
+    "appointment",
+    "scheduling",
+    "clinic"
+  ],
+  "author": "Waleed Imran (W1991885)",
+  "license": "ISC",
+  "dependencies": {
+    "bcryptjs": "^2.4.3",
+    "cors": "^2.8.5",
+    "dotenv": "^16.3.1",
+    "express": "^4.18.2",
+    "express-rate-limit": "^7.1.5",
+    "express-validator": "^7.0.1",
+    "helmet": "^7.1.0",
+    "jsonwebtoken": "^9.0.2",
+    "moment": "^2.30.1",
+    "mongodb": "^7.1.1",
+    "mongoose": "^8.0.3",
+    "morgan": "^1.10.0",
+    "nodemailer": "^8.0.5"
+  },
+  "devDependencies": {
+    "jest": "^29.7.0",
+    "nodemon": "^3.0.2"
+  }
+}
