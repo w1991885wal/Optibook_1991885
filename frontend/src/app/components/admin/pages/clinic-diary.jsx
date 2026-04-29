@@ -95,6 +95,8 @@ export default function ClinicDiary() {
           : "Unknown",
         type: a.appointmentType,
         status: a.status,
+        // Phase AI-2: surface predicted no-show risk for the diary badge.
+        noShowRiskScore: a.noShowRiskScore,
         time: timeLabel,
       };
     }

@@ -6,22 +6,22 @@ import PatientsPage from "./pages/patient";
 import SchedulePage from "./pages/schedule";
 import WaitListPage from "./pages/waitlist";
 import NotificationsPage from "./pages/notification";
-const notificationsData = [
-  {
-    title: "Appointment booked",
-    message: "John Doe booked an appointment.",
-    time: "2 min ago",
-  },
-  {
-    title: "New patient",
-    message: "Jane Smith joined your patients list.",
-    time: "10 min ago",
-  },
-  { title: "Reminder", message: "Follow up with Michael.", time: "1 hour ago" },
-];
+import RecallsPage from "./pages/recalls";
+import PatientHistoryPage from "./pages/patientHistory";
+
+// Phase E: NotificationsPage self-fetches from /api/notifications now.
+// Phase D2a: added Recalls page (sidebar) + Patient history page (deep-linked
+// from Recalls / Patients rows). selectedPatientId travels with active state
+// so the history page knows whose data to load.
 
 export default function OptometristApp({ onLogout }) {
   const [active, setActive] = useState("dashboard");
+  const [selectedPatientId, setSelectedPatientId] = useState(null);
+
+  const openHistory = (patientId) => {
+    setSelectedPatientId(patientId);
+    setActive("history");
+  };
 
   return (
     <DashboardLayout active={active} setActive={setActive} onLogout={onLogout}>
@@ -32,13 +32,22 @@ export default function OptometristApp({ onLogout }) {
           case "diary":
             return <Diary />;
           case "patients":
-            return <PatientsPage />;
+            return <PatientsPage onOpenHistory={openHistory} />;
           case "waitlist":
             return <WaitListPage />;
           case "settings":
             return <SchedulePage />;
           case "notifications":
-            return <NotificationsPage notifications={notificationsData} />;
+            return <NotificationsPage />;
+          case "recalls":
+            return <RecallsPage onOpenHistory={openHistory} />;
+          case "history":
+            return (
+              <PatientHistoryPage
+                patientId={selectedPatientId}
+                onBack={() => setActive("recalls")}
+              />
+            );
         }
       }}
     </DashboardLayout>

@@ -1,16 +1,48 @@
-# React + Vite
+# OptiBook Frontend
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+React 19 + Vite single-page application for the OptiBook scheduling system. See the project root [readme.md](../readme.md) for the full overview.
 
-Currently, two official plugins are available:
+## Tech stack
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Babel](https://babeljs.io/) (or [oxc](https://oxc.rs) when used in [rolldown-vite](https://vite.dev/guide/rolldown)) for Fast Refresh
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/) for Fast Refresh
+- React 19
+- Vite (dev server + build)
+- Tailwind CSS v4
+- Radix UI primitives (accessible Dialog, RadioGroup, Switch, etc.)
+- axios (HTTP) + sonner (toasts)
+- Chart.js (analytics charts)
 
-## React Compiler
+## Commands
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+```bash
+npm install
+npm run dev        # http://localhost:5173
+npm run build      # outputs to dist/
+npm run preview    # serve the production build locally
+npm run lint       # eslint
+```
 
-## Expanding the ESLint configuration
+## Environment
 
-If you are developing a production application, we recommend using TypeScript with type-aware lint rules enabled. Check out the [TS template](https://github.com/vitejs/vite/tree/main/packages/create-vite/template-react-ts) for information on how to integrate TypeScript and [`typescript-eslint`](https://typescript-eslint.io) in your project.
+Copy `.env.example` to `.env` and edit. Single variable:
+
+- `VITE_API_URL` — base URL of the backend API (default `http://localhost:5000/api`)
+
+## Folder map
+
+```
+src/
+├── app/
+│   ├── App.jsx                 # routing
+│   └── components/
+│       ├── admin/              # admin pages + layout
+│       ├── optometrist/        # optometrist pages + layout
+│       ├── patient/            # patient pages + booking + review modal
+│       ├── common/             # shared diary / dashboard / waitlist components
+│       └── ui/                 # Radix-based UI primitives
+├── lib/                        # axios instance + per-feature API helpers
+└── styles/                     # Tailwind base + globals
+```
+
+## Demo credentials
+
+See the project root [readme.md](../readme.md#demo-credentials).

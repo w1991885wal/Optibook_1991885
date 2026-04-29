@@ -1,9 +1,30 @@
-import { Activity, Calendar, Clock, FileText } from "lucide-react";
+import { useEffect, useState } from "react";
+import { Activity, Calendar, Clock, FileText, Star } from "lucide-react";
 import { Card, CardContent } from "../../ui/card";
 import DashboardStats from "../../common/dashboard/quick";
 import TodaysSchedule from "../../common/dashboard/TodaySchedule";
+import { getMyOptometristReviewSummary } from "../../../../lib/review";
 
 export default function DashboardComponent({ setActive }) {
+  // Phase Reviews-Display — fetch the signed-in optom's satisfaction
+  // summary for the new KPI card. Failure is silent: a non-critical
+  // dashboard card shouldn't surface a toast.
+  const [satisfaction, setSatisfaction] = useState(null);
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await getMyOptometristReviewSummary();
+        if (!cancelled) setSatisfaction(res.data?.data || null);
+      } catch (_err) {
+        if (!cancelled) setSatisfaction(null);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   return (
     <div className="">
       {/* Welcome Section */}
@@ -16,7 +37,7 @@ export default function DashboardComponent({ setActive }) {
       </div>
 
       {/* Stats Cards */}
-      <div className="grid md:grid-cols-4 gap-6 mb-8">
+      <div className="grid md:grid-cols-5 gap-6 mb-8">
         <Card>
           <CardContent className="pt-6">
             <div className="flex items-center justify-between">
@@ -67,6 +88,38 @@ export default function DashboardComponent({ setActive }) {
               </div>
               <div className="w-12 h-12 bg-orange-100 rounded-lg flex items-center justify-center">
                 <Clock className="w-6 h-6 text-orange-600" />
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Phase Reviews-Display — My Satisfaction (real review data). */}
+        <Card>
+          <CardContent className="pt-6">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm text-gray-600 mb-1">My Satisfaction</p>
+                {satisfaction && satisfaction.count > 0 ? (
+                  <>
+                    <p className="text-2xl font-bold">
+                      {Number(satisfaction.averageRating).toFixed(1)} / 5
+                    </p>
+                    <p className="text-xs text-gray-500 mt-0.5">
+                      From {satisfaction.count} review
+                      {satisfaction.count === 1 ? "" : "s"}
+                    </p>
+                  </>
+                ) : (
+                  <>
+                    <p className="text-2xl font-bold">—</p>
+                    <p className="text-xs text-gray-500 mt-0.5">
+                      No reviews yet
+                    </p>
+                  </>
+                )}
+              </div>
+              <div className="w-12 h-12 bg-yellow-100 rounded-lg flex items-center justify-center">
+                <Star className="w-6 h-6 text-yellow-600" />
               </div>
             </div>
           </CardContent>

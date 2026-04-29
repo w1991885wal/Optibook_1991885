@@ -4,6 +4,7 @@ const Optometrist = require('../models/Optometrist');
 const Waitlist = require('../models/Waitlist');
 const moment = require('moment');
 const asyncHandler = require('../utils/asyncHandler');
+const { getModelMeta, getModelWeights } = require('../utils/noShowModel');
 
 const avg = (arr) => (arr.length ? arr.reduce((a, b) => a + b, 0) / arr.length : 0);
 const round2 = (n) => Math.round((Number(n) || 0) * 100) / 100;
@@ -145,12 +146,15 @@ exports.getNoShowTrends = asyncHandler(async (req, res) => {
 
   const rows = await Appointment.find({
     date: { $gte: start.toDate() },
-  }).select('date status');
+  }).select('date status noShowRiskScore');
 
   const labels = [];
   const totals = [];
   const noShows = [];
   const rates = [];
+  // Phase ML-Monitoring: predicted-rate trend overlay. Per-day mean of
+  // stored noShowRiskScore × 100. Calibration audit, not retraining feed.
+  const predictedRates = [];
 
   for (let i = 0; i < days; i++) {
     const d = start.clone().add(i, 'days');
@@ -165,9 +169,19 @@ exports.getNoShowTrends = asyncHandler(async (req, res) => {
     totals.push(total);
     noShows.push(ns);
     rates.push(total > 0 ? round2((ns / total) * 100) : 0);
+
+    const scored = dayRows
+      .map((r) => r.noShowRiskScore)
+      .filter((v) => typeof v === 'number');
+    predictedRates.push(
+      scored.length > 0 ? round2(avg(scored) * 100) : 0,
+    );
   }
 
-  res.json({ success: true, data: { labels, totals, noShows, rates } });
+  res.json({
+    success: true,
+    data: { labels, totals, noShows, rates, predictedRates },
+  });
 });
 
 // Last 30 days booked slot distribution by hour-of-day (0-23).
@@ -308,6 +322,133 @@ exports.getAiInsights = asyncHandler(async (req, res) => {
         attendedAvgRisk: round2(avg(attendedRisks)),
       },
       typeDistribution,
+      // Phase AI-2 + ML-Monitoring: trained no-show classifier metadata
+      // plus admin-only weights for the coefficient chart. Null when no
+      // model artifact is loaded — frontend hides the cards gracefully.
+      model: (() => {
+        const meta = getModelMeta();
+        if (!meta) return null;
+        return { ...meta, weights: getModelWeights() };
+      })(),
+      // Phase ML-Monitoring: per-bucket calibration. For each risk bucket
+      // we count appointments and compute the actual no-show rate among
+      // those that have reached a terminal status (completed / no-show).
+      riskBucketPerformance: (() => {
+        const buckets = {
+          low: { count: 0, completed: 0, noShow: 0 },
+          medium: { count: 0, completed: 0, noShow: 0 },
+          high: { count: 0, completed: 0, noShow: 0 },
+        };
+        for (const r of rows) {
+          if (typeof r.noShowRiskScore !== 'number') continue;
+          let key = 'low';
+          if (r.noShowRiskScore >= 0.66) key = 'high';
+          else if (r.noShowRiskScore >= 0.33) key = 'medium';
+          buckets[key].count += 1;
+          if (r.status === 'no-show') buckets[key].noShow += 1;
+          else if (r.status === 'completed') buckets[key].completed += 1;
+        }
+        return Object.entries(buckets).map(([level, b]) => {
+          const terminal = b.completed + b.noShow;
+          const actualRate = terminal > 0
+            ? round2((b.noShow / terminal) * 100)
+            : null;
+          return {
+            level,
+            count: b.count,
+            completed: b.completed,
+            noShow: b.noShow,
+            actualNoShowRate: actualRate,
+          };
+        });
+      })(),
+      // Phase ML-Monitoring: per-optometrist average predicted risk this
+      // month. Top 8 by sample size; sorted by avg risk descending.
+      avgRiskByOptometrist: await (async () => {
+        const populated = await Appointment.find({
+          date: { $gte: monthStart.toDate() },
+          noShowRiskScore: { $ne: null },
+        })
+          .populate('optometrist', 'firstName lastName')
+          .select('noShowRiskScore optometrist')
+          .lean();
+        const map = new Map();
+        for (const r of populated) {
+          if (!r.optometrist) continue;
+          const id = String(r.optometrist._id);
+          if (!map.has(id)) {
+            map.set(id, {
+              name: `Dr. ${r.optometrist.firstName || ''} ${r.optometrist.lastName || ''}`.trim(),
+              total: 0,
+              count: 0,
+            });
+          }
+          const e = map.get(id);
+          e.total += r.noShowRiskScore;
+          e.count += 1;
+        }
+        return [...map.values()]
+          .map((e) => ({
+            optometrist: e.name,
+            count: e.count,
+            avgRisk: round2(e.total / e.count),
+          }))
+          .sort((a, b) => b.avgRisk - a.avgRisk)
+          .slice(0, 8);
+      })(),
+      // Phase ML-Monitoring: per-weekday average predicted risk this month.
+      avgRiskByWeekday: (() => {
+        const labels = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+        const tally = labels.map((label) => ({ day: label, total: 0, count: 0 }));
+        for (const r of rows) {
+          if (typeof r.noShowRiskScore !== 'number' || !r.date) continue;
+          const dow = new Date(r.date).getDay();
+          tally[dow].total += r.noShowRiskScore;
+          tally[dow].count += 1;
+        }
+        return tally.map((t) => ({
+          day: t.day,
+          count: t.count,
+          avgRisk: t.count > 0 ? round2(t.total / t.count) : 0,
+        }));
+      })(),
     },
   });
+});
+
+// Phase ML-Monitoring: top upcoming appointments by predicted no-show risk.
+// Admin-only. Populated with patient + optometrist names so the table can
+// render without a follow-up fetch.
+exports.getHighRiskUpcoming = asyncHandler(async (req, res) => {
+  const limit = Math.min(20, Math.max(1, parseInt(req.query.limit, 10) || 10));
+  const today = moment().startOf('day').toDate();
+
+  const rows = await Appointment.find({
+    date: { $gte: today },
+    status: { $nin: ['cancelled', 'no-show', 'completed'] },
+    noShowRiskScore: { $ne: null },
+  })
+    .populate('patient', 'firstName lastName patientNumber')
+    .populate('optometrist', 'firstName lastName')
+    .sort({ noShowRiskScore: -1, date: 1 })
+    .limit(limit)
+    .lean();
+
+  const data = rows.map((r) => ({
+    appointmentId: r._id,
+    date: r.date,
+    startTime: r.startTime,
+    appointmentType: r.appointmentType,
+    status: r.status,
+    noShowRiskScore: r.noShowRiskScore,
+    patientName: r.patient
+      ? `${r.patient.firstName || ''} ${r.patient.lastName || ''}`.trim()
+      : 'Unknown',
+    patientNumber: r.patient?.patientNumber || null,
+    optometristName: r.optometrist
+      ? `Dr. ${r.optometrist.firstName || ''} ${r.optometrist.lastName || ''}`.trim()
+      : 'Unassigned',
+  }));
+
+  res.json({ success: true, count: data.length, data });
 });

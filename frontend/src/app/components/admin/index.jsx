@@ -27,7 +27,7 @@ export default function AdminApp({ onLogout }) {
           case "patients":
             return <PatientsPage />;
           case "staff":
-            return <StaffManagement />;
+            return <StaffManagement setActive={setActive} />;
           case "setting":
             return <AdminSettings />;
         }

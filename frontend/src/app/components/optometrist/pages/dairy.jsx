@@ -4,7 +4,9 @@ import { Card, CardContent } from "../../ui/card";
 import DiaryHeader from "../../common/diary/DiaryHeader";
 import DayTabs from "../../common/diary/DayTabs";
 import TimeSlot from "../../common/diary/TimeSlot";
+import AppointmentDetailDialog from "../AppointmentDetailDialog";
 import API from "../../../../lib/api";
+import { getMeOptom } from "../../../../lib/optometrist";
 
 const TIME_SLOTS = [
   "9:00 AM",
@@ -62,6 +64,24 @@ const formatTime = (hhmm) => {
   return `${hh}:${String(m).padStart(2, "0")} ${period}`;
 };
 
+// Convert a "9:00 AM" style rail label back to minutes since midnight so we
+// can test overlap against the HH:mm lunch window.
+const labelToMinutes = (label) => {
+  const m = label.match(/^(\d{1,2}):(\d{2})\s*(AM|PM)$/i);
+  if (!m) return null;
+  let h = parseInt(m[1], 10);
+  const min = parseInt(m[2], 10);
+  const p = m[3].toUpperCase();
+  if (p === "PM" && h !== 12) h += 12;
+  if (p === "AM" && h === 12) h = 0;
+  return h * 60 + min;
+};
+const hhmmToMinutes = (s) => {
+  if (!s) return null;
+  const [h, m] = s.split(":").map(Number);
+  return h * 60 + m;
+};
+
 export default function Diary() {
   const [weekStart, setWeekStart] = useState(() =>
     startOfWeekMonday(new Date()),
@@ -69,6 +89,23 @@ export default function Diary() {
   const [activeDay, setActiveDay] = useState("mon");
   const [appointments, setAppointments] = useState([]);
   const [loading, setLoading] = useState(false);
+  const [selectedAppointment, setSelectedAppointment] = useState(null);
+  const [lunchBreak, setLunchBreak] = useState(null);
+
+  // Fetch the signed-in optom's lunch break once so the rail can highlight
+  // the overlapping slot. Failure is silent — the diary still works without
+  // the lunch band; we just skip the pseudo-block injection.
+  useEffect(() => {
+    (async () => {
+      try {
+        const res = await getMeOptom();
+        const lb = res.data?.data?.lunchBreak;
+        if (lb?.start && lb?.end) setLunchBreak(lb);
+      } catch {
+        /* non-blocking */
+      }
+    })();
+  }, []);
 
   const weekDates = useMemo(
     () => DAY_KEYS.map((_, i) => addDays(weekStart, i)),
@@ -104,9 +141,11 @@ export default function Diary() {
 
   useEffect(() => {
     fetchAppointments();
-
   }, [weekStart]);
 
+  // Build a { day -> { time -> blockData } } map for render. Each block
+  // carries a `full` reference back to the raw appointment so the detail
+  // dialog has everything it needs without re-fetching.
   const byDayTime = useMemo(() => {
     const out = {};
     for (const a of appointments) {
@@ -125,6 +164,9 @@ export default function Diary() {
         type: a.appointmentType,
         status: a.status,
         optometristId: a.optometrist?._id,
+        // Phase AI-2: surface predicted no-show risk for the diary badge.
+        noShowRiskScore: a.noShowRiskScore,
+        full: a,
       };
     }
     return out;
@@ -150,9 +192,39 @@ export default function Diary() {
     }
   };
 
+  const handleAppointmentClick = (block) => {
+    if (!block?.full) return;
+    setSelectedAppointment(block.full);
+  };
+
+  const handleDialogClose = (didChange) => {
+    setSelectedAppointment(null);
+    if (didChange) fetchAppointments();
+  };
+
   const dayAppts = byDayTime[activeDay] || {};
   const railSet = new Set(TIME_SLOTS);
   const offRail = Object.entries(dayAppts).filter(([t]) => !railSet.has(t));
+
+  // Compute which rail rows overlap the lunch window. Each rail slot spans
+  // 60 minutes starting at its label. We only inject a break pseudo-block
+  // where there is no real appointment occupying that slot.
+  const lunchRange = useMemo(() => {
+    if (!lunchBreak) return null;
+    const s = hhmmToMinutes(lunchBreak.start);
+    const e = hhmmToMinutes(lunchBreak.end);
+    if (s == null || e == null || s >= e) return null;
+    return [s, e];
+  }, [lunchBreak]);
+
+  const isLunchSlot = (label) => {
+    if (!lunchRange) return false;
+    const start = labelToMinutes(label);
+    if (start == null) return false;
+    const end = start + 60;
+    // overlap: slot[start,end) intersects lunch[s,e)
+    return start < lunchRange[1] && end > lunchRange[0];
+  };
 
   return (
     <>
@@ -171,24 +243,43 @@ export default function Diary() {
             <p className="text-sm text-gray-500 mb-3">Loading…</p>
           )}
           <div className="space-y-3">
-            {TIME_SLOTS.map((time) => (
-              <TimeSlot
-                key={time}
-                time={time}
-                appointment={dayAppts[time]}
-                onDrop={handleDrop}
-              />
-            ))}
+            {TIME_SLOTS.map((time) => {
+              const real = dayAppts[time];
+              // Safeguard #4: lunch highlight only when the slot has no real
+              // appointment. A real booking always takes visual priority.
+              const block =
+                real || (isLunchSlot(time) ? { isBreak: true } : undefined);
+              return (
+                <TimeSlot
+                  key={time}
+                  time={time}
+                  appointment={block}
+                  onDrop={handleDrop}
+                  onAppointmentClick={handleAppointmentClick}
+                />
+              );
+            })}
             {offRail.length > 0 && (
               <div className="pt-3 mt-3 border-t border-gray-200 space-y-3">
                 {offRail.map(([time, appt]) => (
-                  <TimeSlot key={time} time={time} appointment={appt} />
+                  <TimeSlot
+                    key={time}
+                    time={time}
+                    appointment={appt}
+                    onAppointmentClick={handleAppointmentClick}
+                  />
                 ))}
               </div>
             )}
           </div>
         </CardContent>
       </Card>
+
+      <AppointmentDetailDialog
+        open={!!selectedAppointment}
+        appointment={selectedAppointment}
+        onClose={handleDialogClose}
+      />
     </>
   );
 }

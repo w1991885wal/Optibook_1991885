@@ -1,0 +1,122 @@
+{
+  "trainedAt": "2026-04-28T00:07:52.492Z",
+  "sampleSize": 2400,
+  "seed": 42,
+  "trainSize": 1920,
+  "testSize": 480,
+  "featureNames": [
+    "attendance_rate",
+    "prior_no_shows_180d",
+    "lead_days",
+    "patient_age",
+    "visit_count",
+    "has_phone",
+    "is_weekend",
+    "hour_of_day",
+    "is_first_or_last_slot",
+    "appt_type_eye_test",
+    "appt_type_cl"
+  ],
+  "means": [
+    86.540833,
+    0.58125,
+    9.091146,
+    40.280208,
+    2.650521,
+    0.915104,
+    0.273958,
+    12.579688,
+    0.284375,
+    0.552604,
+    0.201042
+  ],
+  "stds": [
+    7.731752,
+    0.659595,
+    9.116921,
+    22.295824,
+    3.258043,
+    0.278727,
+    0.445988,
+    2.877156,
+    0.451116,
+    0.497225,
+    0.400779
+  ],
+  "coefficients": [
+    -0.431885,
+    0.443036,
+    0.152208,
+    -0.015218,
+    -0.157776,
+    -0.083982,
+    0.102618,
+    -0.083483,
+    0.120103,
+    0.001934,
+    0.043336
+  ],
+  "intercept": -0.243568,
+  "metrics": {
+    "train": {
+      "accuracy": 0.6734,
+      "precision": 0.2815,
+      "recall": 0.6842,
+      "f1": 0.3988,
+      "confusionMatrix": {
+        "tp": 208,
+        "fp": 531,
+        "tn": 1085,
+        "fn": 96
+      },
+      "auc": 0.7376
+    },
+    "test": {
+      "accuracy": 0.6875,
+      "precision": 0.2983,
+      "recall": 0.7013,
+      "f1": 0.4186,
+      "confusionMatrix": {
+        "tp": 54,
+        "fp": 127,
+        "tn": 276,
+        "fn": 23
+      },
+      "auc": 0.782
+    },
+    "accuracy": 0.6875,
+    "precision": 0.2983,
+    "recall": 0.7013,
+    "f1": 0.4186,
+    "auc": 0.782
+  },
+  "confusionMatrix": {
+    "tp": 54,
+    "fp": 127,
+    "tn": 276,
+    "fn": 23
+  },
+  "syntheticNoShowRate": 0.1588,
+  "classWeights": {
+    "wPos": 3.1578947368421053,
+    "wNeg": 0.594059405940594
+  },
+  "hyperparameters": {
+    "seed": 42,
+    "sampleSize": 2400,
+    "trainFraction": 0.8,
+    "learningRate": 0.05,
+    "l2": 0.01,
+    "epochs": 1500,
+    "threshold": 0.5,
+    "qualityFloor": {
+      "accuracy": 0.65,
+      "auc": 0.7
+    }
+  },
+  "notes": [
+    "Trained on synthetic data only.",
+    "Synthesis uses Mulberry32 PRNG with the seed above; results are reproducible.",
+    "Replace with real-data training before any production deployment."
+  ]
+}

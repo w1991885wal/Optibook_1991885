@@ -1,12 +1,97 @@
 const Appointment = require('../models/Appointment');
 const Patient = require('../models/Patient');
 const Optometrist = require('../models/Optometrist');
+const Notification = require('../models/Notification');
 const moment = require('moment');
 const asyncHandler = require('../utils/asyncHandler');
 const ApiError = require('../utils/ApiError');
 const { computeDuration } = require('../utils/durationRules');
 const { validateAppointmentSlot } = require('../utils/appointmentConflicts');
 const { computeNoShowRisk, computeCompatibility } = require('../utils/aiScoring');
+
+// Phase E: fire-and-forget notification emission. NEVER await in the request
+// path — any DB failure here must not surface to the caller or block the
+// primary action. We catch and swallow; logging stays silent in prod.
+const emitNotifications = (rows) => {
+  // rows = array of notification-shaped plain objects
+  try {
+    Notification.insertMany(rows, { ordered: false }).catch(() => {});
+  } catch (_) {
+    /* never throws */
+  }
+};
+
+const patientName = (p) =>
+  p ? `${p.firstName || ''} ${p.lastName || ''}`.trim() || 'a patient' : 'a patient';
+
+const fmtWhen = (date, startTime) =>
+  `${moment(date).format('ddd D MMM')} at ${startTime}`;
+
+const notifyBooking = (appointment, patient) => {
+  const who = patientName(patient);
+  const when = fmtWhen(appointment.date, appointment.startTime);
+  emitNotifications([
+    {
+      recipientRole: 'optometrist',
+      optometrist: appointment.optometrist,
+      type: 'booking-created',
+      title: 'New booking',
+      message: `${who} booked a ${appointment.appointmentType} on ${when}.`,
+      appointment: appointment._id,
+    },
+    {
+      recipientRole: 'admin',
+      type: 'booking-created',
+      title: 'New booking',
+      message: `${who} booked a ${appointment.appointmentType} on ${when}.`,
+      appointment: appointment._id,
+    },
+  ]);
+};
+
+const notifyReschedule = (appointment, patient) => {
+  const who = patientName(patient);
+  const when = fmtWhen(appointment.date, appointment.startTime);
+  emitNotifications([
+    {
+      recipientRole: 'optometrist',
+      optometrist: appointment.optometrist,
+      type: 'booking-rescheduled',
+      title: 'Appointment rescheduled',
+      message: `${who}'s appointment moved to ${when}.`,
+      appointment: appointment._id,
+    },
+    {
+      recipientRole: 'admin',
+      type: 'booking-rescheduled',
+      title: 'Appointment rescheduled',
+      message: `${who}'s appointment moved to ${when}.`,
+      appointment: appointment._id,
+    },
+  ]);
+};
+
+const notifyCancel = (appointment, patient) => {
+  const who = patientName(patient);
+  const when = fmtWhen(appointment.date, appointment.startTime);
+  emitNotifications([
+    {
+      recipientRole: 'optometrist',
+      optometrist: appointment.optometrist,
+      type: 'booking-cancelled',
+      title: 'Appointment cancelled',
+      message: `${who}'s appointment on ${when} was cancelled.`,
+      appointment: appointment._id,
+    },
+    {
+      recipientRole: 'admin',
+      type: 'booking-cancelled',
+      title: 'Appointment cancelled',
+      message: `${who}'s appointment on ${when} was cancelled.`,
+      appointment: appointment._id,
+    },
+  ]);
+};
 
 const computeEndTime = (startTime, duration) =>
   moment(startTime, 'HH:mm').add(duration, 'minutes').format('HH:mm');
@@ -131,6 +216,9 @@ exports.createAppointment = asyncHandler(async (req, res) => {
   });
 
   await appointment.populate('patient optometrist');
+
+  // Fire-and-forget — after the primary action has resolved.
+  notifyBooking(appointment, appointment.patient);
 
   res.status(201).json({ success: true, data: appointment });
 });
@@ -348,6 +436,8 @@ exports.rescheduleAppointment = asyncHandler(async (req, res) => {
   await existing.save();
   await existing.populate('patient optometrist');
 
+  notifyReschedule(existing, existing.patient);
+
   res.json({ success: true, data: existing });
 });
 
@@ -363,9 +453,11 @@ exports.cancelAppointment = asyncHandler(async (req, res) => {
     req.params.id,
     { status: 'cancelled' },
     { new: true },
-  );
+  ).populate('patient');
 
   // TODO (Phase 7): auto-promote next waitlist entry for this optometrist
+
+  notifyCancel(appointment, appointment.patient);
 
   res.json({ success: true, data: appointment });
 });

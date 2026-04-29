@@ -15,6 +15,9 @@ const appointmentSchema = new mongoose.Schema(
     appointmentType: {
       type: String,
       enum: [
+        // ── New patient-facing types (Phase C) ──
+        "Eye Test",
+        // ── Legacy types retained for historical records ──
         "Comprehensive Eye Exam",
         "Contact Lens Fitting",
         "Follow-up Consultation",
@@ -22,7 +25,6 @@ const appointmentSchema = new mongoose.Schema(
         "Eye Emergency",
         "Children's Eye Exam",
         "Standard Eye Test",
-        "Contact Lens Fitting",
         "Contact Lens Follow-up",
         "PCO Test",
         "PCO Test + Eye Test",
@@ -47,7 +49,16 @@ const appointmentSchema = new mongoose.Schema(
     },
     status: {
       type: String,
-      enum: ["scheduled", "confirmed", "completed", "cancelled", "no-show"],
+      // "in-progress" added in Phase D1 — emitted when the optometrist clicks
+      // "Start Appointment" in the diary. Older statuses are unchanged.
+      enum: [
+        "scheduled",
+        "confirmed",
+        "in-progress",
+        "completed",
+        "cancelled",
+        "no-show",
+      ],
       default: "scheduled",
     },
     notes: {

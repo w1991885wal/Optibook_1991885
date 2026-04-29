@@ -13,11 +13,16 @@ const assertCanAccess = async (user, patientId) => {
 };
 
 // Fields a self-updating patient is not allowed to change.
+// Phase R5b: protect both legacy and typed recall fields so patients still
+// cannot self-edit any recall data, regardless of which generation of field
+// the codebase is currently treating as truth.
 const PATIENT_PROTECTED_FIELDS = [
   'user',
   'visitCount',
   'attendanceRate',
   'nextRecallDate',
+  'eyeTestRecallDate',
+  'contactLensRecallDate',
 ];
 
 exports.getPatients = asyncHandler(async (req, res) => {

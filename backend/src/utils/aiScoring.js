@@ -1,5 +1,6 @@
 const moment = require('moment');
 const { OLDER_PATIENT_AGE_THRESHOLD, calcAge } = require('./durationRules');
+const noShowModel = require('./noShowModel');
 
 // Appointment-type → expected specialty. Unknown types fall through to age-based
 // inference (Senior ≥ 60) or General.
@@ -103,7 +104,10 @@ function computeRecommendationScore({ compatibilityScore, bookedOnDate, maxPerDa
   return Math.round(0.7 * compatibilityScore + 0.3 * bonus * 100);
 }
 
-function computeNoShowRisk({
+// Phase AI-1 — rules-based no-show risk path, retained verbatim as the
+// fallback used when the trained ML model can't load or feature extraction
+// fails. Same logic, same return shape as before R0.
+function computeNoShowRiskRules({
   patient,
   optometrist,
   date,
@@ -177,6 +181,30 @@ function computeNoShowRisk({
   else if (riskScore >= 0.33) riskLevel = 'medium';
 
   return { riskScore: Number(riskScore.toFixed(2)), riskLevel, factors };
+}
+
+// Phase AI-1 — public no-show risk: ML model first, rules fallback on any
+// failure. Return shape preserved exactly: { riskScore, riskLevel, factors }.
+// All existing callers in appointmentController, waitlistController and
+// aiController continue to work without callsite changes.
+function computeNoShowRisk(input) {
+  try {
+    if (noShowModel.isModelLoaded()) {
+      const result = noShowModel.predictNoShowRisk(input);
+      if (
+        result &&
+        typeof result.riskScore === 'number' &&
+        typeof result.riskLevel === 'string' &&
+        Array.isArray(result.factors)
+      ) {
+        return result;
+      }
+    }
+  } catch (_err) {
+    // Silent fallback. Logging here would spam the controller layer; the
+    // caller has no remediation path other than rules anyway.
+  }
+  return computeNoShowRiskRules(input);
 }
 
 function rankSlots({

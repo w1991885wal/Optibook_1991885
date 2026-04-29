@@ -11,8 +11,8 @@ exports.registerRules = validate([
       'Password must be at least 8 characters and contain a letter and a number',
     ),
   body('role')
-    .isIn(['patient', 'optometrist'])
-    .withMessage('Role must be patient or optometrist'),
+    .isIn(['patient'])
+    .withMessage('Only patient self-registration is supported'),
 ]);
 
 exports.loginRules = validate([

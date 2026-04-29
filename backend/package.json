@@ -3,12 +3,16 @@
   "version": "1.0.0",
   "description": "OptiBook Backend API - Smart Optical Clinic Scheduling System",
   "main": "src/server.js",
+  "engines": {
+    "node": ">=20"
+  },
   "scripts": {
     "start": "node src/server.js",
     "dev": "nodemon src/server.js",
     "test": "jest",
     "seed": "node src/utils/seed.js",
-    "seed:demo": "node src/utils/seedDemo.js"
+    "seed:demo": "node src/utils/seedDemo.js",
+    "seed:synthetic": "node src/utils/seedSynthetic.js"
   },
   "keywords": [
     "optibook",

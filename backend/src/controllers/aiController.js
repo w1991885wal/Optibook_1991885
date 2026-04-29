@@ -67,6 +67,11 @@ exports.recommendOptometrist = asyncHandler(async (req, res) => {
   const patient = await resolvePatient(req, patientId);
   const optometrists = await Optometrist.find({ isActive: { $ne: false } });
 
+  // Phase AI-3: pre-compute lead days + past no-shows once. Both are
+  // patient-and-date scoped, not optom-specific.
+  const leadDays = leadDaysFrom(date);
+  const pastNoShows = await countPastNoShows(patient._id);
+
   const ranked = [];
   for (const o of optometrists) {
     const [bookedOnDate, visitsWithOptometrist] = await Promise.all([
@@ -89,6 +94,44 @@ exports.recommendOptometrist = asyncHandler(async (req, res) => {
     const explanation = compat.breakdown
       .filter((b) => b.score === b.max)
       .map((b) => b.factor);
+
+    // Phase AI-3: ML-informed re-rank.
+    // computeNoShowRisk goes through the trained model (rules fallback if
+    // unavailable). startTime is intentionally omitted — the recommendation
+    // step happens before slot selection, so this represents an "average
+    // slot on this date" estimate. The actual booking flow recomputes risk
+    // with the chosen slot in appointmentController.createAppointment.
+    let predictedNoShowRisk = null;
+    let predictedAttendance = null;
+    let riskLevel = null;
+    let riskFactors = [];
+    let finalScore = recommendationScore;
+    try {
+      const risk = computeNoShowRisk({
+        patient,
+        optometrist: o,
+        date,
+        leadDays,
+        pastNoShows,
+        appointmentType,
+      });
+      if (risk && typeof risk.riskScore === 'number') {
+        predictedNoShowRisk = Number(risk.riskScore.toFixed(2));
+        predictedAttendance = Number((1 - risk.riskScore).toFixed(2));
+        riskLevel = risk.riskLevel || null;
+        riskFactors = Array.isArray(risk.factors) ? risk.factors.slice(0, 3) : [];
+        // Weighted re-rank: 70% existing rules-based recommendation,
+        // 30% predicted attendance scaled to a 0-100 range.
+        finalScore = Math.round(
+          0.7 * recommendationScore + 0.3 * predictedAttendance * 100,
+        );
+      }
+    } catch (_err) {
+      // Row-local failure: keep the existing recommendationScore as the
+      // finalScore, leave predicted fields null. The rest of the row is
+      // unaffected.
+    }
+
     ranked.push({
       optometristId: o._id,
       firstName: o.firstName,
@@ -99,10 +142,19 @@ exports.recommendOptometrist = asyncHandler(async (req, res) => {
       compatibilityScore: compat.score,
       breakdown: compat.breakdown,
       explanation,
+      // Phase AI-3 additions (backward-compatible — purely additive fields):
+      predictedNoShowRisk,
+      predictedAttendance,
+      riskLevel,
+      riskFactors,
+      finalScore,
     });
   }
 
-  ranked.sort((a, b) => b.recommendationScore - a.recommendationScore);
+  // Phase AI-3: sort by finalScore (= ML-reranked) instead of the raw
+  // recommendationScore. recommendationScore stays on each row as the
+  // un-reranked baseline for inspection/dissertation comparisons.
+  ranked.sort((a, b) => b.finalScore - a.finalScore);
   res.json({ success: true, data: ranked.slice(0, 3) });
 });
 

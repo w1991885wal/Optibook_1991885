@@ -12,7 +12,9 @@ const calcAge = (dob) => {
 function computeDuration({ appointmentType, patient, optometrist }) {
   if (appointmentType === 'PCO Test + Eye Test') return 45;
 
-  if (appointmentType === 'Standard Eye Test') {
+  // "Eye Test" is the current patient-facing name; "Standard Eye Test" is the
+  // legacy label kept for historical data. Both follow the same duration rule.
+  if (appointmentType === 'Eye Test' || appointmentType === 'Standard Eye Test') {
     const age = calcAge(patient && patient.dateOfBirth);
     if (age !== null && age >= OLDER_PATIENT_AGE_THRESHOLD) return 30;
     return 15;

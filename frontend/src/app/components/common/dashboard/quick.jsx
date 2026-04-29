@@ -3,7 +3,7 @@ import { Card, CardContent } from "../../ui/card";
 export default function DashboardStats() {
   const quickStats = [
     { label: "Average Consultation Time", value: "28 min" },
-    { label: "Patient Satisfaction", value: "4.8/5.0 ⭐" },
+    { label: "Patient Satisfaction", value: "4.8/5.0" },
     { label: "No-Show Rate", value: "3.2%" },
     { label: "Total Patients Seen", value: "1,247" },
   ];

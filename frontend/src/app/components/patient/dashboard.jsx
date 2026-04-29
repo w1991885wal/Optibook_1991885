@@ -1,77 +1,48 @@
-import { useState } from "react";
+import { useEffect, useState, useMemo } from "react";
 import {
   Calendar,
   Clock,
-  User,
-  FileText,
   Plus,
   LogOut,
   Eye,
-  Phone,
-  Mail,
-  MapPin,
   Activity,
 } from "lucide-react";
 import { Button } from "../ui/button";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "../ui/card";
+import { Card, CardContent } from "../ui/card";
 import { Badge } from "../ui/badge";
 import { Avatar, AvatarFallback, AvatarImage } from "../ui/avatar";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "../ui/tabs";
-import { ImageWithFallback } from "../ImageWithFallback";
 import { BookingModal } from "./BokoingModal";
-import { useEffect } from "react";
+import ReviewModal from "./ReviewModal";
 import { getMe, getPatientAppointments } from "../../../lib/patient";
-import { useNavigate } from "react-router-dom";
+import { getMyReview } from "../../../lib/review";
+import { Link, useNavigate } from "react-router-dom";
 import { toast } from "sonner";
 import API from "../../../lib/api";
 import { getDaysUntilAppointment, getNextAppointment } from "../../../lib/user";
-import ProfileTab from "./profileUpdate";
 
-const mockAppointments = [
-  {
-    id: 1,
-    date: "2026-01-20",
-    time: "10:00 AM",
-    doctor: "Dr. Emma Wilson",
-    type: "Comprehensive Eye Exam",
-    status: "upcoming",
-    image:
-      "https://images.unsplash.com/photo-1604781099561-c70393a38a6d?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxvcHRvbWV0cmlzdCUyMGdsYXNzZXN8ZW58MXx8fHwxNzY4Mjc5NjI5fDA&ixlib=rb-4.1.0&q=80&w=400",
-  },
-  {
-    id: 2,
-    date: "2026-01-15",
-    time: "2:30 PM",
-    doctor: "Dr. James Chen",
-    type: "Contact Lens Fitting",
-    status: "completed",
-    image:
-      "https://images.unsplash.com/photo-1604781099561-c70393a38a6d?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxvcHRvbWV0cmlzdCUyMGdsYXNzZXN8ZW58MXx8fHwxNzY4Mjc5NjI5fDA&ixlib=rb-4.1.0&q=80&w=400",
-  },
-];
+// Past vs upcoming classification. "Upcoming" = things the patient still needs
+// to attend. "Past" = everything that has already happened or been closed out.
+const UPCOMING_STATUSES = new Set(["scheduled", "confirmed"]);
+const PAST_STATUSES = new Set(["completed", "cancelled", "no-show"]);
 
-const mockRecords = [
-  {
-    id: 1,
-    date: "2026-01-10",
-    type: "Eye Exam",
-    doctor: "Dr. Sarah Johnson",
-    prescription: "Right: -2.50, Left: -2.25",
-  },
-  {
-    id: 2,
-    date: "2025-12-15",
-    type: "Follow-up",
-    doctor: "Dr. Michael Chen",
-    prescription: "No change",
-  },
-];
+const formatDate = (d) =>
+  new Date(d).toLocaleDateString("en-GB", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  });
+
+const prettyOptomName = (o) => {
+  if (!o?.firstName) return "Optometrist";
+  return `Dr. ${o.firstName}${o.lastName ? " " + o.lastName : ""}`;
+};
+
+const statusBadgeVariant = (status) => {
+  if (status === "scheduled" || status === "confirmed") return "default";
+  if (status === "completed") return "secondary";
+  return "outline";
+};
 
 export function PatientDashboard() {
   const [isBookingOpen, setIsBookingOpen] = useState(false);
@@ -82,20 +53,73 @@ export function PatientDashboard() {
   const [loading, setLoading] = useState(false);
 
   const [appointments, setAppointments] = useState([]);
-  const [isDel, setIsDel] = useState("");
+  const [cancellingId, setCancellingId] = useState("");
+
+  // Phase Reviews-Patient-UI: per-appointment review state.
+  //   reviewedSet :: Map<appointmentId, reviewDoc>
+  //   reviewModal :: { appointment, existingReview } | null
+  const [reviewedSet, setReviewedSet] = useState(new Map());
+  const [reviewModal, setReviewModal] = useState(null);
 
   useEffect(() => {
     loadDashboard();
   }, []);
 
-  // useEffect(() => {
-  //   const user = getUserRole();
-  //   setUserInfo({
-  //     name: user.name || user.email || "Sarah",
-  //     email: user.email,
-  //     profile: `https://api.dicebear.com/7.x/avataaars/svg?seed=${user.id}`,
-  //   });
-  // }, []);
+  useEffect(() => {
+    if (!isBookingOpen) fetchAppointments();
+  }, [isBookingOpen]);
+
+  // Phase Reviews-Patient-UI: when appointments change, prefetch review
+  // status for every completed appointment. N parallel fetches via
+  // Promise.allSettled — failures don't block the dashboard, those rows
+  // just default to "Leave review" and the backend will 409 if a review
+  // truly exists (handled in the modal).
+  useEffect(() => {
+    const completed = appointments.filter((a) => a.status === "completed");
+    if (completed.length === 0) {
+      if (reviewedSet.size > 0) setReviewedSet(new Map());
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      const results = await Promise.allSettled(
+        completed.map((a) => getMyReview(a._id)),
+      );
+      if (cancelled) return;
+      const next = new Map();
+      completed.forEach((a, i) => {
+        const r = results[i];
+        if (r.status === "fulfilled" && r.value?.data?.data) {
+          next.set(a._id, r.value.data.data);
+        }
+      });
+      setReviewedSet(next);
+    })();
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [appointments]);
+
+  const handleOpenReview = (appointment) => {
+    // Layer 2 frontend re-check: even if the button rendered "Leave
+    // review", check the cached reviewedSet at click time. Catches the
+    // case where a review was created in another tab between mount and
+    // click.
+    const existing = reviewedSet.get(appointment._id) || null;
+    setReviewModal({ appointment, existingReview: existing });
+  };
+
+  const handleReviewSubmitted = (review) => {
+    if (review && review.appointment) {
+      setReviewedSet((prev) => {
+        const next = new Map(prev);
+        next.set(String(review.appointment), review);
+        return next;
+      });
+    }
+    setReviewModal(null);
+  };
 
   const loadDashboard = async () => {
     try {
@@ -109,12 +133,6 @@ export function PatientDashboard() {
       setLoading(false);
     }
   };
-
-  useEffect(() => {
-    if (!isBookingOpen) {
-      fetchAppointments();
-    }
-  }, [isBookingOpen]);
 
   const fetchAppointments = async () => {
     try {
@@ -130,39 +148,53 @@ export function PatientDashboard() {
   const logout = () => {
     localStorage.removeItem("token");
     localStorage.removeItem("user");
-    navigate("/login");
+    navigate("/");
   };
-
-  if (loading) {
-    return <div className="p-10 text-center">Loading dashboard...</div>;
-  }
 
   const cancelAppointment = async (appointmentId) => {
     try {
-      setIsDel(appointmentId);
+      setCancellingId(appointmentId);
       await API.delete(`/appointments/${appointmentId}`);
-      toast.success("Appointment cancelled successfully");
-
-      // refresh appointments
+      toast.success("Appointment cancelled");
       fetchAppointments();
     } catch (error) {
       toast.error(
         error.response?.data?.message || "Failed to cancel appointment",
       );
     } finally {
-      setIsDel(false);
+      setCancellingId("");
     }
   };
 
-  const upcomingCount = appointments?.filter(
-    (a) => a.status === "scheduled",
-  ).length;
-  const completedCount = appointments?.filter(
+  // Split appointments once per render.
+  const { upcoming, past } = useMemo(() => {
+    const up = [];
+    const ps = [];
+    for (const a of appointments || []) {
+      if (UPCOMING_STATUSES.has(a.status)) up.push(a);
+      else if (PAST_STATUSES.has(a.status)) ps.push(a);
+    }
+    // Upcoming sorted soonest-first; past sorted newest-first.
+    up.sort(
+      (a, b) =>
+        new Date(a.date) - new Date(b.date) ||
+        a.startTime.localeCompare(b.startTime),
+    );
+    ps.sort((a, b) => new Date(b.date) - new Date(a.date));
+    return { upcoming: up, past: ps };
+  }, [appointments]);
+
+  const upcomingCount = upcoming.length;
+  const completedCount = appointments.filter(
     (a) => a.status === "completed",
   ).length;
 
   const nextAppointment = getNextAppointment(appointments);
   const daysUntil = getDaysUntilAppointment(nextAppointment);
+
+  if (loading) {
+    return <div className="p-10 text-center">Loading dashboard...</div>;
+  }
 
   return (
     <div className="min-h-screen bg-linear-to-br from-blue-50 via-white to-teal-50">
@@ -181,19 +213,28 @@ export function PatientDashboard() {
             <div className="flex items-center gap-4">
               <Button onClick={() => setIsBookingOpen(true)} className="gap-2">
                 <Plus className="w-4 h-4" />
-                New Appointment
+                New appointment
               </Button>
-              <Avatar>
-                <AvatarImage
-                  src={`https://api.dicebear.com/7.x/avataaars/svg?seed=${profile?._id}`}
-                />
-                <AvatarFallback>{profile?.firstName?.[0]}</AvatarFallback>
-              </Avatar>
+              {/* Avatar acts as the entry point to the profile page. */}
+              <Link
+                to="/profile"
+                title="Your profile"
+                aria-label="Your profile"
+                className="rounded-full ring-2 ring-transparent hover:ring-blue-200 transition"
+              >
+                <Avatar>
+                  <AvatarImage
+                    src={`https://api.dicebear.com/7.x/avataaars/svg?seed=${profile?._id}`}
+                  />
+                  <AvatarFallback>{profile?.firstName?.[0]}</AvatarFallback>
+                </Avatar>
+              </Link>
               <Button
                 variant="ghost"
                 size="icon"
                 onClick={logout}
                 className="cursor-pointer"
+                aria-label="Log out"
               >
                 <LogOut className="w-5 h-5" />
               </Button>
@@ -203,17 +244,17 @@ export function PatientDashboard() {
       </header>
 
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        {/* Welcome Section */}
+        {/* Welcome */}
         <div className="mb-8">
           <h2 className="text-3xl font-bold mb-2">
-            Welcome back, {profile?.firstName}!
+            Welcome back{profile?.firstName ? `, ${profile.firstName}` : ""}!
           </h2>
           <p className="text-gray-600">
-            Manage your eye care appointments and health records
+            Manage your eye-care appointments and view your history.
           </p>
         </div>
 
-        {/* Stats Cards */}
+        {/* Stats — order: Upcoming, Next Visit, Completed */}
         <div className="grid md:grid-cols-3 gap-6 mb-8">
           <Card>
             <CardContent className="pt-6">
@@ -228,6 +269,23 @@ export function PatientDashboard() {
               </div>
             </CardContent>
           </Card>
+
+          <Card>
+            <CardContent className="pt-6">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm text-gray-600 mb-1">Next visit</p>
+                  <p className="text-2xl font-bold">
+                    {daysUntil !== null ? `${daysUntil}d` : "--"}
+                  </p>
+                </div>
+                <div className="w-12 h-12 bg-orange-100 rounded-lg flex items-center justify-center">
+                  <Clock className="w-6 h-6 text-orange-600" />
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+
           <Card>
             <CardContent className="pt-6">
               <div className="flex items-center justify-between">
@@ -241,212 +299,52 @@ export function PatientDashboard() {
               </div>
             </CardContent>
           </Card>
-
-          <Card>
-            <CardContent className="pt-6">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-sm text-gray-600 mb-1">Next Visit</p>
-                  <p className="text-2xl font-bold">
-                    {daysUntil !== null ? `${daysUntil}d` : "--"}
-                  </p>
-                </div>
-                <div className="w-12 h-12 bg-orange-100 rounded-lg flex items-center justify-center">
-                  <Clock className="w-6 h-6 text-orange-600" />
-                </div>
-              </div>
-            </CardContent>
-          </Card>
         </div>
 
-        {/* Main Content */}
-        <Tabs defaultValue="appointments" className="space-y-6">
+        {/* Appointment tabs */}
+        <Tabs defaultValue="upcoming" className="space-y-6">
           <TabsList>
-            <TabsTrigger value="appointments">Appointments</TabsTrigger>
-            {/* <TabsTrigger value="records">Medical Records</TabsTrigger> */}
-            <TabsTrigger value="profile">Profile</TabsTrigger>
+            <TabsTrigger value="upcoming">
+              Upcoming {upcomingCount > 0 ? `(${upcomingCount})` : ""}
+            </TabsTrigger>
+            <TabsTrigger value="past">
+              Past {past.length > 0 ? `(${past.length})` : ""}
+            </TabsTrigger>
           </TabsList>
 
-          <TabsContent value="appointments" className="space-y-4">
-            {appointments?.length === 0 && (
-              <p className="text-gray-500">No appointments yet.</p>
+          <TabsContent value="upcoming" className="space-y-4">
+            {upcoming.length === 0 ? (
+              <p className="text-gray-500">
+                You have no upcoming appointments.
+              </p>
+            ) : (
+              upcoming.map((appointment) => (
+                <AppointmentCard
+                  key={appointment._id}
+                  appointment={appointment}
+                  profile={profile}
+                  cancellingId={cancellingId}
+                  onCancel={cancelAppointment}
+                  showCancel
+                />
+              ))
             )}
-            {appointments?.map((appointment) => (
-              <Card
-                key={appointment.id}
-                className="hover:shadow-lg transition-shadow"
-              >
-                <CardContent className="p-6">
-                  <div className="flex items-start gap-4">
-                    <Avatar className="w-20 h-20">
-                      <AvatarImage
-                        src={`https://api.dicebear.com/7.x/avataaars/svg?seed=${appointment?.optometrist?._id}`}
-                      />
-                      <AvatarFallback>{profile?.firstName?.[0]}</AvatarFallback>
-                    </Avatar>
-                    {/* <ImageWithFallback
-                      src={appointment.image}
-                      alt="Optometrist"
-                      className="w-20 h-20 rounded-lg object-cover"
-                    /> */}
-                    <div className="flex-1">
-                      <div className="flex items-start justify-between mb-2">
-                        <div>
-                          <h3 className="font-semibold text-lg">
-                            {appointment.appointmentType}
-                          </h3>
-                          <p className="text-gray-600">
-                            {appointment?.optometrist?.firstName
-                              ? `Dr. ${appointment.optometrist.firstName}${
-                                  appointment.optometrist.lastName
-                                    ? " " + appointment.optometrist.lastName
-                                    : ""
-                                }`
-                              : "Optometrist"}
-                          </p>
-                        </div>
-                        <Badge
-                          variant={
-                            appointment.status === "scheduled"
-                              ? "default"
-                              : "secondary"
-                          }
-                        >
-                          {appointment.status}
-                        </Badge>
-                      </div>
-                      <div className="flex items-center gap-4 text-sm text-gray-600">
-                        <div className="flex items-center gap-1">
-                          <Calendar className="w-4 h-4" />
-                          {new Date(appointment.date).toLocaleDateString(
-                            "en-US",
-                            {
-                              month: "short",
-                              day: "numeric",
-                              year: "numeric",
-                            },
-                          )}
-                        </div>
-                        <div className="flex items-center gap-1">
-                          <Clock className="w-4 h-4" />
-                          {appointment?.startTime}
-                        </div>
-                      </div>
-                      {appointment.status === "scheduled" && (
-                        <div className="flex gap-2 mt-4">
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            onClick={() => {
-                              cancelAppointment(appointment?._id);
-                            }}
-                            disabled={isDel === appointment?._id}
-                          >
-                            {isDel === appointment?._id
-                              ? "Cancelling"
-                              : "Cancel"}
-                          </Button>
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
-            ))}
           </TabsContent>
 
-          <TabsContent value="records" className="space-y-4">
-            {mockRecords.map((record) => (
-              <Card key={record.id}>
-                <CardHeader>
-                  <div className="flex items-start justify-between">
-                    <div>
-                      <CardTitle>{record.type}</CardTitle>
-                      <CardDescription>
-                        {new Date(record.date).toLocaleDateString("en-US", {
-                          month: "long",
-                          day: "numeric",
-                          year: "numeric",
-                        })}
-                      </CardDescription>
-                    </div>
-                    <Button size="sm" variant="outline">
-                      View Details
-                    </Button>
-                  </div>
-                </CardHeader>
-                <CardContent>
-                  <div className="space-y-2">
-                    <div className="flex items-center gap-2">
-                      <User className="w-4 h-4 text-gray-500" />
-                      <span className="text-sm">{record.doctor}</span>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <FileText className="w-4 h-4 text-gray-500" />
-                      <span className="text-sm">
-                        Prescription: {record.prescription}
-                      </span>
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
-            ))}
-          </TabsContent>
-
-          <TabsContent value="profile">
-            <ProfileTab user={user} profile={profile} />
-            {/* <Card>
-              <CardHeader>
-                <CardTitle>Personal Information</CardTitle>
-                <CardDescription>
-                  Manage your profile and contact information
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-6">
-                <div className="flex items-center gap-4">
-                  <Avatar className="w-20 h-20">
-                    <AvatarImage
-                      src={`https://api.dicebear.com/7.x/avataaars/svg?seed=${user?._id}`}
-                    />
-                    <AvatarFallback>{profile?.firstName?.[0]}</AvatarFallback>
-                  </Avatar>
-                  <div>
-                    <h3 className="font-semibold text-lg">{profile?.name}</h3>
-                    <p className="text-gray-600">Patient ID: {}</p>
-                  </div>
-                </div>
-                <div className="grid md:grid-cols-2 gap-6">
-                  <div className="space-y-2">
-                    <div className="flex items-center gap-2 text-gray-600">
-                      <Mail className="w-4 h-4" />
-                      <span>{user?.email}</span>
-                    </div>
-                    <div className="flex items-center gap-2 text-gray-600">
-                      <Phone className="w-4 h-4" />
-                      <span>+1 (555) 123-4567</span>
-                    </div>
-                    <div className="flex items-center gap-2 text-gray-600">
-                      <MapPin className="w-4 h-4" />
-                      <span>123 Main St, City, State 12345</span>
-                    </div>
-                  </div>
-                  <div className="space-y-2">
-                    <p className="text-sm">
-                      <span className="font-medium">Date of Birth:</span>{" "}
-                      January 15, 1985
-                    </p>
-                    <p className="text-sm">
-                      <span className="font-medium">Blood Type:</span> A+
-                    </p>
-                    <p className="text-sm">
-                      <span className="font-medium">Insurance:</span> BlueCross
-                      BlueShield
-                    </p>
-                  </div>
-                </div>
-                <Button>Edit Profile</Button>
-              </CardContent>
-            </Card> */}
+          <TabsContent value="past" className="space-y-4">
+            {past.length === 0 ? (
+              <p className="text-gray-500">No past appointments yet.</p>
+            ) : (
+              past.map((appointment) => (
+                <AppointmentCard
+                  key={appointment._id}
+                  appointment={appointment}
+                  profile={profile}
+                  existingReview={reviewedSet.get(appointment._id) || null}
+                  onLeaveReview={handleOpenReview}
+                />
+              ))
+            )}
           </TabsContent>
         </Tabs>
       </div>
@@ -460,6 +358,95 @@ export function PatientDashboard() {
           phone: profile?.phone,
         }}
       />
+
+      <ReviewModal
+        open={!!reviewModal}
+        appointment={reviewModal?.appointment}
+        existingReview={reviewModal?.existingReview}
+        onClose={() => setReviewModal(null)}
+        onSubmitted={handleReviewSubmitted}
+      />
     </div>
+  );
+}
+
+function AppointmentCard({
+  appointment,
+  profile,
+  cancellingId,
+  onCancel,
+  showCancel = false,
+  existingReview = null,
+  onLeaveReview,
+}) {
+  const canReview =
+    appointment.status === "completed" && typeof onLeaveReview === "function";
+  return (
+    <Card className="hover:shadow-lg transition-shadow">
+      <CardContent className="p-6">
+        <div className="flex items-start gap-4">
+          <Avatar className="w-20 h-20">
+            <AvatarImage
+              src={`https://api.dicebear.com/7.x/avataaars/svg?seed=${appointment?.optometrist?._id}`}
+            />
+            <AvatarFallback>
+              {appointment?.optometrist?.firstName?.[0] ||
+                profile?.firstName?.[0] ||
+                "?"}
+            </AvatarFallback>
+          </Avatar>
+          <div className="flex-1">
+            <div className="flex items-start justify-between mb-2">
+              <div>
+                <h3 className="font-semibold text-lg">
+                  {appointment.appointmentType}
+                </h3>
+                <p className="text-gray-600">
+                  {prettyOptomName(appointment.optometrist)}
+                </p>
+              </div>
+              <Badge variant={statusBadgeVariant(appointment.status)}>
+                {appointment.status}
+              </Badge>
+            </div>
+            <div className="flex flex-wrap items-center gap-4 text-sm text-gray-600">
+              <div className="flex items-center gap-1">
+                <Calendar className="w-4 h-4" />
+                {formatDate(appointment.date)}
+              </div>
+              <div className="flex items-center gap-1">
+                <Clock className="w-4 h-4" />
+                {appointment.startTime}
+              </div>
+            </div>
+            {showCancel && (
+              <div className="flex gap-2 mt-4">
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => onCancel(appointment._id)}
+                  disabled={cancellingId === appointment._id}
+                >
+                  {cancellingId === appointment._id
+                    ? "Cancelling..."
+                    : "Cancel"}
+                </Button>
+              </div>
+            )}
+            {canReview && (
+              <div className="flex gap-2 mt-4">
+                <Button
+                  size="sm"
+                  variant={existingReview ? "outline" : "default"}
+                  onClick={() => onLeaveReview(appointment)}
+                >
+                  {existingReview ? "View your review" : "Leave review"}
+                </Button>
+              </div>
+            )}
+          </div>
+        </div>
+      </CardContent>
+    </Card>
   );
 }

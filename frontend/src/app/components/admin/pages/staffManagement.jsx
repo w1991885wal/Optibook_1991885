@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { Card, CardContent } from "../../ui/card";
 import { Button } from "../../ui/button";
 import {
@@ -15,8 +15,10 @@ import {
 import { ToggleButton } from "../../common/toggle";
 import { staffData } from "../../common/mock-data";
 import { Avatar, AvatarFallback, AvatarImage } from "../../ui/avatar";
+import API from "../../../../lib/api";
+import { getOptometristReviewSummary } from "../../../../lib/review";
 
-export default function StaffManagement({ onLogout }) {
+export default function StaffManagement({ onLogout, setActive }) {
   const [staff, setStaff] = useState(staffData);
 
   /* ------------------ SEARCH ------------------ */
@@ -28,11 +30,47 @@ export default function StaffManagement({ onLogout }) {
     );
   }, [query, staff]);
 
+  // Phase Reviews-Display — hybrid name-match satisfaction map.
+  // Mock staffData drives the layout; real review summaries are fetched
+  // on the side and joined to mock entries by lowercase full-name match.
+  // satisfactionByName :: Map<string, { averageRating, count }>
+  const [satisfactionByName, setSatisfactionByName] = useState(new Map());
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const optomsResp = await API.get("/optometrists");
+        const optoms = optomsResp.data?.data || [];
+        if (cancelled) return;
+        const summaries = await Promise.allSettled(
+          optoms.map((o) => getOptometristReviewSummary(o._id)),
+        );
+        if (cancelled) return;
+        const next = new Map();
+        optoms.forEach((o, i) => {
+          const r = summaries[i];
+          if (r.status !== "fulfilled") return;
+          const data = r.value?.data?.data;
+          if (!data) return;
+          const name =
+            `${o.firstName || ""} ${o.lastName || ""}`.trim().toLowerCase();
+          if (name) next.set(name, data);
+        });
+        setSatisfactionByName(next);
+      } catch (_err) {
+        // Silent — Satisfaction column shows "—" if the join fails.
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   return (
     <main className="space-y-6">
       {/* Header */}
       <div>
-        <h1 className="text-2xl font-semibold">Staff Management 👨‍⚕️</h1>
+        <h1 className="text-2xl font-semibold">Staff Management</h1>
         <p className="text-sm text-gray-500">Dashboard / Staff Management</p>
       </div>
 
@@ -184,10 +222,17 @@ export default function StaffManagement({ onLogout }) {
                 <Button
                   size="sm"
                   className="bg-blue-500 text-white hover:bg-blue-500/90 cursor-pointer"
+                  onClick={() => setActive?.("diary")}
+                  title="Open the clinic diary"
                 >
                   View Schedule
                 </Button>
-                <Button size="sm" variant="outline">
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => setActive?.("setting")}
+                  title="Open Settings · per-staff editor coming later"
+                >
                   Edit Profile
                 </Button>
               </div>
@@ -234,9 +279,21 @@ export default function StaffManagement({ onLogout }) {
                       </span>
                     </td>
                     <td className="p-3 text-center">
-                      <span className="bg-green-100 text-green-700 px-2 py-1 rounded text-xs">
-                        4.{8 - i}/5.0 ⭐
-                      </span>
+                      {(() => {
+                        const sum = satisfactionByName.get(
+                          (member.name || "").toLowerCase(),
+                        );
+                        if (!sum || sum.count === 0) {
+                          return (
+                            <span className="text-xs text-gray-400">—</span>
+                          );
+                        }
+                        return (
+                          <span className="bg-green-100 text-green-700 px-2 py-1 rounded text-xs tabular-nums">
+                            {Number(sum.averageRating).toFixed(1)} ({sum.count})
+                          </span>
+                        );
+                      })()}
                     </td>
                   </tr>
                 ))}

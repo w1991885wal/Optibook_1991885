@@ -1,92 +1,103 @@
-import { Button } from "../../ui/button";
 import { Card, CardContent } from "../../ui/card";
+import { Switch } from "../../ui/switch";
+
+// Phase E: uniform 7-day editor. Every day — including Saturday and Sunday —
+// is driven through the same handleWorkingHoursChange(day, field, value) path.
+// No day-specific code, no special enums, no direct parent-state access.
+
+const DAYS = [
+  { key: "monday", label: "Monday" },
+  { key: "tuesday", label: "Tuesday" },
+  { key: "wednesday", label: "Wednesday" },
+  { key: "thursday", label: "Thursday" },
+  { key: "friday", label: "Friday" },
+  { key: "saturday", label: "Saturday" },
+  { key: "sunday", label: "Sunday" },
+];
 
 export default function WorkingHoursCard({
   workingHours,
+  lunchBreak,
   handleWorkingHoursChange,
+  handleLunchChange,
 }) {
   return (
     <Card className="pt-4">
       <CardContent className="space-y-4">
-        <h2 className="text-lg font-semibold">Working Hours</h2>
+        <h2 className="text-lg font-semibold">Working hours</h2>
+        <p className="text-xs text-gray-500">
+          Toggle a day off or set its start and end time. Each day is independent.
+        </p>
 
-        {/* Monday - Friday */}
-        <div className="space-y-2">
-          <label className="block text-sm font-medium">Monday - Friday</label>
-          <div className="flex flex-col sm:flex-row gap-2">
+        <div className="space-y-3">
+          {DAYS.map(({ key, label }) => {
+            const day = workingHours[key] || {
+              working: false,
+              start: "09:00",
+              end: "17:00",
+            };
+            return (
+              <div
+                key={key}
+                className="grid grid-cols-[120px_90px_1fr_auto_1fr] items-center gap-3"
+              >
+                <div className="text-sm font-medium">{label}</div>
+
+                <div className="flex items-center gap-2">
+                  <Switch
+                    checked={!!day.working}
+                    onCheckedChange={(v) =>
+                      handleWorkingHoursChange(key, "working", v)
+                    }
+                  />
+                  <span className="text-xs text-gray-500">
+                    {day.working ? "Open" : "Off"}
+                  </span>
+                </div>
+
+                <input
+                  type="time"
+                  disabled={!day.working}
+                  value={day.start || "09:00"}
+                  onChange={(e) =>
+                    handleWorkingHoursChange(key, "start", e.target.value)
+                  }
+                  className="px-3 py-2 border rounded-md text-sm disabled:bg-gray-50 disabled:text-gray-400"
+                />
+                <span className="text-xs text-gray-400">to</span>
+                <input
+                  type="time"
+                  disabled={!day.working}
+                  value={day.end || "17:00"}
+                  onChange={(e) =>
+                    handleWorkingHoursChange(key, "end", e.target.value)
+                  }
+                  className="px-3 py-2 border rounded-md text-sm disabled:bg-gray-50 disabled:text-gray-400"
+                />
+              </div>
+            );
+          })}
+        </div>
+
+        <div className="border-t pt-4">
+          <h3 className="text-sm font-semibold mb-2">Lunch break</h3>
+          <div className="grid grid-cols-[120px_1fr_auto_1fr] items-center gap-3">
+            <div className="text-sm text-gray-600">Daily</div>
             <input
               type="time"
-              className="flex-1 px-3 py-2 border rounded-md text-sm"
-              value={workingHours.monFri.from}
-              onChange={(e) =>
-                handleWorkingHoursChange("monFri", "from", e.target.value)
-              }
+              value={lunchBreak?.start || "12:00"}
+              onChange={(e) => handleLunchChange("start", e.target.value)}
+              className="px-3 py-2 border rounded-md text-sm"
             />
-            <span className="hidden sm:flex items-center px-2 text-sm text-gray-500">
-              to
-            </span>
+            <span className="text-xs text-gray-400">to</span>
             <input
               type="time"
-              className="flex-1 px-3 py-2 border rounded-md text-sm"
-              value={workingHours.monFri.to}
-              onChange={(e) =>
-                handleWorkingHoursChange("monFri", "to", e.target.value)
-              }
+              value={lunchBreak?.end || "13:00"}
+              onChange={(e) => handleLunchChange("end", e.target.value)}
+              className="px-3 py-2 border rounded-md text-sm"
             />
           </div>
         </div>
-
-        {/* Lunch Break */}
-        <div className="space-y-2">
-          <label className="block text-sm font-medium">Lunch Break</label>
-          <div className="flex flex-col sm:flex-row gap-2">
-            <input
-              type="time"
-              className="flex-1 px-3 py-2 border rounded-md text-sm"
-              value={workingHours.lunch.from}
-              onChange={(e) =>
-                handleWorkingHoursChange("lunch", "from", e.target.value)
-              }
-            />
-            <span className="hidden sm:flex items-center px-2 text-sm text-gray-500">
-              to
-            </span>
-            <input
-              type="time"
-              className="flex-1 px-3 py-2 border rounded-md text-sm"
-              value={workingHours.lunch.to}
-              onChange={(e) =>
-                handleWorkingHoursChange("lunch", "to", e.target.value)
-              }
-            />
-          </div>
-        </div>
-
-        {/* Saturday */}
-        <div className="space-y-2">
-          <label className="block text-sm font-medium">Saturday</label>
-          <select
-            className="w-full px-3 py-2 border rounded-md text-sm"
-            value={workingHours.saturday}
-            onChange={(e) =>
-              setWorkingHours((prev) => ({
-                ...prev,
-                saturday: e.target.value,
-              }))
-            }
-          >
-            <option>Not Working</option>
-            <option>9:00 AM - 1:00 PM</option>
-            <option>9:00 AM - 5:00 PM</option>
-          </select>
-        </div>
-
-        <Button
-          className="mt-2"
-          onClick={() => console.log("Saved Working Hours", workingHours)}
-        >
-          💾 Save Working Hours
-        </Button>
       </CardContent>
     </Card>
   );

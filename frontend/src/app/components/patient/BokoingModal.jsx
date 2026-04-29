@@ -1,13 +1,6 @@
 import { useEffect, useState } from "react";
-import {
-  Calendar as CalendarIcon,
-  Clock,
-  User,
-  Phone,
-  Mail,
-} from "lucide-react";
+import { Clock, Sparkles, Calendar as CalendarIcon, User } from "lucide-react";
 import { Button } from "../ui/button";
-import { Input } from "../ui/input";
 import { Label } from "../ui/label";
 import { Textarea } from "../ui/textarea";
 import {
@@ -29,107 +22,83 @@ import { toast } from "sonner";
 import Calendar from "../ui/update-calendar";
 import API from "../../../lib/api";
 
-const appointmentTypes = [
-  "Comprehensive Eye Exam",
+// Patient-facing booking flow. Auto-assign only: the clinic picks the
+// optometrist, the patient picks type + date + time. Manual optom selection
+// has been removed. The AI story stays visible by showing the assigned
+// optometrist + compatibility score + reasoning alongside the time slots.
+//
+// Failure modes are friendly:
+//   - recommend-optometrist returns nothing  → "No optometrist available for this date."
+//   - /appointments/available returns empty  → same message, invites another date.
+//   - network error                          → toast, modal stays open, state preserved.
+
+const APPOINTMENT_TYPES = [
+  "Eye Test",
   "Contact Lens Fitting",
-  "Follow-up Consultation",
-  "Prescription Update",
-  "Eye Emergency",
-  "Children's Eye Exam",
-  "Standard Eye Test",
   "Contact Lens Follow-up",
   "PCO Test",
   "PCO Test + Eye Test",
-  "Other",
 ];
 
-export function BookingModal({ open, onClose, userData }) {
+export function BookingModal({ open, onClose }) {
+  // Booking-Manual: two-mode patient flow.
+  //   "predictive" — original AI-assisted flow (unchanged behaviour)
+  //   "manual"     — patient picks optometrist + date + time directly
+  const [mode, setMode] = useState("predictive");
+
   const [step, setStep] = useState(1);
-  const [selectedDoctor, setSelectedDoctor] = useState("");
   const [appointmentType, setAppointmentType] = useState("");
-  const [selectedDate, setSelectedDate] = useState();
+  const [selectedDate, setSelectedDate] = useState(undefined);
   const [selectedTime, setSelectedTime] = useState("");
-  const [patientName, setPatientName] = useState("");
-  const [patientPhone, setPatientPhone] = useState("pPhone");
-  const [patientEmail, setPatientEmail] = useState("");
   const [notes, setNotes] = useState("");
-  const [schedulePreference, setSchedulePreference] = useState("manual");
-  const [aiLoading, setAiLoading] = useState(false);
 
-  const [doctors, setDoctors] = useState([]);
-  const [loadingDoctors, setLoadingDoctors] = useState(false);
+  // Auto-assigned optometrist + AI signals for this (type, date) — Predictive.
+  const [assignedOptom, setAssignedOptom] = useState(null); // full recommend payload
+  const [assignReasons, setAssignReasons] = useState([]);
   const [availableSlots, setAvailableSlots] = useState([]);
-  const [loadingSlots, setLoadingSlots] = useState(false);
-  const [aiOptometrist, setAiOptometrist] = useState(null);
-  const [aiCompatibility, setAiCompatibility] = useState(null);
-  const [aiExplanation, setAiExplanation] = useState([]);
 
-  useEffect(() => {
-    const fetchDoctors = async () => {
-      try {
-        setLoadingDoctors(true);
-        const res = await API.get("/optometrists");
-        setDoctors(res.data.data);
-      } catch (error) {
-        toast.error("Failed to load optometrists");
-      } finally {
-        setLoadingDoctors(false);
-      }
-    };
+  // Manual-mode state.
+  const [optometrists, setOptometrists] = useState([]);
+  const [loadingOptoms, setLoadingOptoms] = useState(false);
+  const [manualOptomId, setManualOptomId] = useState("");
+  const [manualSlots, setManualSlots] = useState([]);
+  const [loadingManualSlots, setLoadingManualSlots] = useState(false);
 
-    if (open) fetchDoctors();
-  }, [open]);
+  const [loadingAssign, setLoadingAssign] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
 
-  useEffect(() => {
-    if (schedulePreference !== "manual") {
-      setAvailableSlots([]);
-      return;
-    }
-    if (!selectedDoctor || !selectedDate || !appointmentType) {
-      setAvailableSlots([]);
-      return;
-    }
-    const fetchSlots = async () => {
-      try {
-        setLoadingSlots(true);
-        setSelectedTime("");
-        const res = await API.get("/appointments/available", {
-          params: {
-            optometristId: selectedDoctor,
-            date: selectedDate.toISOString(),
-            appointmentType,
-          },
-        });
-        setAvailableSlots(res.data.data || []);
-      } catch (error) {
-        toast.error("Failed to load available slots");
-        setAvailableSlots([]);
-      } finally {
-        setLoadingSlots(false);
-      }
-    };
-    fetchSlots();
-  }, [selectedDoctor, selectedDate, appointmentType, schedulePreference]);
-
-  useEffect(() => {
-    const email = userData?.email;
-    const name = userData?.name;
-    const phone = userData?.phone;
-
-    setPatientEmail(email);
-    setPatientName(name);
-    setPatientPhone(phone);
-  }, [userData]);
-
+  // Full reset on close — restores the default Predictive mode.
   const handleReset = () => {
+    setMode("predictive");
     setStep(1);
-    setSelectedDoctor("");
     setAppointmentType("");
     setSelectedDate(undefined);
     setSelectedTime("");
     setNotes("");
-    setSchedulePreference("manual");
-    setAiLoading(false);
+    setAssignedOptom(null);
+    setAssignReasons([]);
+    setAvailableSlots([]);
+    setManualOptomId("");
+    setManualSlots([]);
+    setLoadingAssign(false);
+    setLoadingManualSlots(false);
+    setSubmitting(false);
+  };
+
+  // Mode-switch reset — back to step 1 with all cross-mode state cleared
+  // so a stale optom or slot from one mode can't leak into the other.
+  const handleModeChange = (next) => {
+    if (next === mode) return;
+    setMode(next);
+    setStep(1);
+    setAppointmentType("");
+    setSelectedDate(undefined);
+    setSelectedTime("");
+    setAssignedOptom(null);
+    setAssignReasons([]);
+    setAvailableSlots([]);
+    setManualOptomId("");
+    setManualSlots([]);
   };
 
   const handleClose = () => {
@@ -137,104 +106,233 @@ export function BookingModal({ open, onClose, userData }) {
     onClose();
   };
 
-  const handleSubmit = async () => {
-    try {
-      const user = JSON.parse(localStorage.getItem("user"));
+  // When the patient picks a date in step 2, we auto-recommend an optometrist
+  // and fetch their available slots in one pass. Reset slot selection so a
+  // stale time can't carry over between dates.
+  useEffect(() => {
+    if (step !== 2 || !selectedDate || !appointmentType) return;
 
+    let cancelled = false;
+    setLoadingAssign(true);
+    setSelectedTime("");
+    setAvailableSlots([]);
+    setAssignedOptom(null);
+    setAssignReasons([]);
+
+    (async () => {
+      try {
+        // 1) Ask the AI for the best optometrist for this (type, date).
+        const recRes = await API.post("/ai/recommend-optometrist", {
+          patientId: null, // backend resolves from req.user for patient role
+          appointmentType,
+          date: selectedDate.toISOString(),
+        });
+        const top = recRes.data.data?.[0];
+        if (cancelled) return;
+
+        if (!top) {
+          toast.error(
+            "No optometrist is available on that date. Please try another.",
+          );
+          setLoadingAssign(false);
+          return;
+        }
+
+        // 2) Fetch their real available slots for that date.
+        const slotsRes = await API.get("/appointments/available", {
+          params: {
+            optometristId: top.optometristId,
+            date: selectedDate.toISOString(),
+            appointmentType,
+          },
+        });
+        if (cancelled) return;
+
+        const slots = slotsRes.data.data || [];
+        if (slots.length === 0) {
+          toast.message(
+            "That day is fully booked for the assigned optometrist — try another date.",
+          );
+        }
+
+        // 3) Ask the AI for reasons / compatibility breakdown for the same
+        //    optom so we can surface them next to the slot grid. Best-effort.
+        let reasons = [];
+        try {
+          const detailRes = await API.post("/ai/recommend-slots", {
+            patientId: null,
+            optometristId: top.optometristId,
+            date: selectedDate.toISOString(),
+            appointmentType,
+          });
+          reasons = detailRes.data.data?.[0]?.reasons || [];
+        } catch (_) {
+          /* non-fatal */
+        }
+
+        if (cancelled) return;
+        setAssignedOptom(top);
+        setAssignReasons(reasons);
+        setAvailableSlots(slots);
+      } catch (err) {
+        if (cancelled) return;
+        toast.error(
+          err.response?.data?.message ||
+            "Could not auto-assign an optometrist — please try another date.",
+        );
+      } finally {
+        if (!cancelled) setLoadingAssign(false);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [step, selectedDate, appointmentType]);
+
+  // Manual mode: fetch the optometrist list once when the user lands on
+  // step 2 of the manual flow. Cached for the lifetime of the modal so a
+  // back-and-forth between steps doesn't re-fetch.
+  useEffect(() => {
+    if (!open) return;
+    if (mode !== "manual") return;
+    if (optometrists.length > 0) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        setLoadingOptoms(true);
+        const res = await API.get("/optometrists");
+        if (cancelled) return;
+        setOptometrists(res.data?.data || []);
+      } catch (err) {
+        if (!cancelled) {
+          toast.error(
+            err.response?.data?.message || "Could not load optometrists",
+          );
+        }
+      } finally {
+        if (!cancelled) setLoadingOptoms(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [open, mode, optometrists.length]);
+
+  // Manual mode: fetch slots whenever (optom, date, type) are all chosen.
+  // Same /appointments/available endpoint the rest of the app uses, so
+  // server-side conflict + working-hours validation runs identically.
+  useEffect(() => {
+    if (mode !== "manual") return;
+    if (!manualOptomId || !selectedDate || !appointmentType) {
+      setManualSlots([]);
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      try {
+        setLoadingManualSlots(true);
+        setSelectedTime("");
+        const res = await API.get("/appointments/available", {
+          params: {
+            optometristId: manualOptomId,
+            date: selectedDate.toISOString(),
+            appointmentType,
+          },
+        });
+        if (cancelled) return;
+        setManualSlots(res.data?.data || []);
+      } catch (err) {
+        if (!cancelled) {
+          toast.error(
+            err.response?.data?.message || "Could not load available times",
+          );
+          setManualSlots([]);
+        }
+      } finally {
+        if (!cancelled) setLoadingManualSlots(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [mode, manualOptomId, selectedDate, appointmentType]);
+
+  const handleSubmit = async () => {
+    if (!selectedDate || !selectedTime || !appointmentType) {
+      toast.error("Please complete all booking details.");
+      return;
+    }
+    // Resolve which optometrist applies to this submission based on mode.
+    const optomId =
+      mode === "manual" ? manualOptomId : assignedOptom?.optometristId;
+    if (!optomId) {
+      toast.error("Please select an optometrist.");
+      return;
+    }
+    const optomDisplayName =
+      mode === "manual"
+        ? (() => {
+            const o = optometrists.find((x) => x._id === manualOptomId);
+            return o
+              ? `Dr. ${o.firstName || ""} ${o.lastName || ""}`.trim()
+              : "your optometrist";
+          })()
+        : `Dr. ${assignedOptom?.firstName || ""}${assignedOptom?.lastName ? " " + assignedOptom.lastName : ""}`;
+
+    try {
+      setSubmitting(true);
       await API.post("/appointments", {
-        patientId: user.role === "patient" ? user.id : null,
-        optometristId: selectedDoctor,
+        optometristId: optomId,
         date: selectedDate,
         startTime: selectedTime,
         appointmentType,
         specialRequirements: notes,
-        smartBooking: schedulePreference === "smart",
+        // Booking-Manual: smartBooking flag is the canonical signal of
+        // whether the patient used AI. Predictive=true, Manual=false.
+        smartBooking: mode === "predictive",
       });
 
-      toast.success("Appointment booked successfully!", {
-        description: `Your appointment with ${
-          doctors.find((d) => d._id === selectedDoctor)?.firstName
-        } has been confirmed.`,
+      toast.success("Appointment booked!", {
+        description: `You'll be seen by ${optomDisplayName} on ${selectedDate.toLocaleDateString(
+          "en-GB",
+          { day: "numeric", month: "short" },
+        )} at ${selectedTime}.`,
       });
       handleClose();
     } catch (error) {
       toast.error(error.response?.data?.message || "Booking failed");
+    } finally {
+      setSubmitting(false);
     }
   };
-
-  // const handleSubmit = () => {
-
-  //   // toast.success("Appointment booked successfully!", {
-  //   //   description: `Your appointment with ${
-  //   //     mockDoctors.find((d) => d.id === selectedDoctor)?.name
-  //   //   } has been confirmed.`,
-  //   // });
-  //   handleClose();
-  // };
 
   const isStepValid = () => {
     switch (step) {
       case 1:
-        return selectedDoctor && appointmentType;
+        return !!appointmentType;
       case 2:
-        return schedulePreference === "smart"
-          ? true
-          : selectedDate && selectedTime;
+        if (mode === "manual") {
+          return !!manualOptomId && !!selectedDate && !!selectedTime;
+        }
+        return !!selectedDate && !!selectedTime && !!assignedOptom;
       case 3:
-        return patientName && patientPhone && patientEmail;
+        if (mode === "manual") {
+          return (
+            !!appointmentType &&
+            !!manualOptomId &&
+            !!selectedDate &&
+            !!selectedTime
+          );
+        }
+        return (
+          !!appointmentType &&
+          !!selectedDate &&
+          !!selectedTime &&
+          !!assignedOptom
+        );
       default:
         return false;
-    }
-  };
-
-  const handleNextStep = async () => {
-    if (step === 2 && schedulePreference === "smart") {
-      setAiLoading(true);
-      try {
-        // Scan next 7 days for a recommended optometrist + slot.
-        for (let offset = 1; offset <= 7; offset++) {
-          const d = new Date();
-          d.setDate(d.getDate() + offset);
-
-          const recRes = await API.post("/ai/recommend-optometrist", {
-            patientId: null,
-            appointmentType,
-            date: d.toISOString(),
-          });
-          const top = recRes.data.data?.[0];
-          if (!top) continue;
-
-          const slotRes = await API.post("/ai/recommend-slots", {
-            patientId: null,
-            optometristId: top.optometristId,
-            date: d.toISOString(),
-            appointmentType,
-          });
-          const topSlot = slotRes.data.data?.[0];
-          if (!topSlot) continue;
-
-          setSelectedDoctor(top.optometristId);
-          setSelectedDate(d);
-          setSelectedTime(topSlot.startTime);
-          setAiOptometrist(top);
-          setAiCompatibility(top.compatibilityScore);
-          setAiExplanation(topSlot.reasons || []);
-          setAiLoading(false);
-          setStep(step + 1);
-          return;
-        }
-        toast.error(
-          "No smart slot found in the next 7 days — please pick manually.",
-        );
-        setSchedulePreference("manual");
-      } catch (e) {
-        toast.error(e.response?.data?.message || "Smart scheduling failed");
-        setSchedulePreference("manual");
-      } finally {
-        setAiLoading(false);
-      }
-    } else {
-      setStep(step + 1);
     }
   };
 
@@ -242,76 +340,81 @@ export function BookingModal({ open, onClose, userData }) {
     <Dialog open={open} onOpenChange={handleClose}>
       <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle className="text-2xl">Book an Appointment</DialogTitle>
+          <DialogTitle className="text-2xl">Book an appointment</DialogTitle>
           <DialogDescription>
             Step {step} of 3:{" "}
             {step === 1
-              ? "Select Doctor & Service"
+              ? "Appointment type"
               : step === 2
-                ? "Choose Date & Time"
-                : "Confirm Details"}
+                ? "Date & time"
+                : "Confirm"}
           </DialogDescription>
         </DialogHeader>
 
         <div className="space-y-6 py-4">
-          {/* Step 1: Doctor and Service Selection */}
+          {/* Booking-Manual: mode switch. Predictive is default; Manual lets
+              the patient pick the optometrist directly. Switching resets the
+              flow to step 1 so cross-mode state can't leak. */}
+          <div className="flex items-center gap-2 rounded-lg border bg-gray-50 p-1 w-fit">
+            <Button
+              type="button"
+              size="sm"
+              variant={mode === "predictive" ? "default" : "ghost"}
+              onClick={() => handleModeChange("predictive")}
+              disabled={submitting}
+            >
+              <Sparkles className="w-4 h-4 mr-1" />
+              Predictive
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              variant={mode === "manual" ? "default" : "ghost"}
+              onClick={() => handleModeChange("manual")}
+              disabled={submitting}
+            >
+              <User className="w-4 h-4 mr-1" />
+              Manual
+            </Button>
+          </div>
+
+          {/* ── Step 1: appointment type ── */}
           {step === 1 && (
-            <div className="space-y-6">
-              <div className="space-y-3">
-                <Label>Select Optometrist</Label>
-                <div className="grid gap-3">
-                  {loadingDoctors && <p>"Doctors loading..."</p>}
-                  {doctors?.length > 0 ? (
-                    doctors?.map((doctor) => (
-                      <div
-                        key={doctor._id}
-                        className={`p-4 border-2 rounded-lg cursor-pointer transition-all ${
-                          selectedDoctor === doctor._id
-                            ? "border-blue-500 bg-blue-50"
-                            : "border-gray-200 hover:border-blue-300"
-                        }`}
-                        onClick={() => setSelectedDoctor(doctor._id)}
-                      >
-                        <div className="flex items-center gap-3">
-                          <Avatar>
-                            <AvatarImage
-                              src={`https://api.dicebear.com/7.x/avataaars/svg?seed=${doctor?._id}`}
-                            />
-                            <AvatarFallback>
-                              {doctor.firstName
-                                .split(" ")
-                                .map((n) => n[0])
-                                .join("")}
-                            </AvatarFallback>
-                          </Avatar>
-                          <div>
-                            <p className="font-semibold">
-                              Dr. {doctor.firstName}
-                            </p>
-                            <p className="text-sm text-gray-600">
-                              {doctor.specialty}
-                            </p>
-                          </div>
-                        </div>
-                      </div>
-                    ))
-                  ) : (
-                    <p>Doctors not found</p>
-                  )}
+            <div className="space-y-4">
+              {mode === "predictive" ? (
+                <div className="p-4 rounded-lg bg-purple-50 border border-purple-200">
+                  <p className="font-medium flex items-center gap-2 text-purple-900">
+                    <Sparkles className="w-4 h-4" /> Predictive booking
+                  </p>
+                  <p className="text-sm text-purple-800 mt-1">
+                    We'll match you with the best optometrist based on your
+                    needs and their availability — no need to pick one
+                    yourself.
+                  </p>
                 </div>
-              </div>
+              ) : (
+                <div className="p-4 rounded-lg bg-blue-50 border border-blue-200">
+                  <p className="font-medium flex items-center gap-2 text-blue-900">
+                    <User className="w-4 h-4" /> Manual booking
+                  </p>
+                  <p className="text-sm text-blue-800 mt-1">
+                    Choose your optometrist, date and time directly. We'll
+                    still validate availability before confirming.
+                  </p>
+                </div>
+              )}
 
               <div className="space-y-2">
-                <Label htmlFor="appointmentType">Appointment Type</Label>
+                <Label htmlFor="appointmentType">Appointment type</Label>
                 <Select
                   value={appointmentType}
                   onValueChange={setAppointmentType}
                 >
                   <SelectTrigger id="appointmentType">
-                    <SelectValue placeholder="Select appointment type" />
+                    <SelectValue placeholder="Choose an appointment type" />
                   </SelectTrigger>
                   <SelectContent>
-                    {appointmentTypes.map((type) => (
+                    {APPOINTMENT_TYPES.map((type) => (
                       <SelectItem key={type} value={type}>
                         {type}
                       </SelectItem>
@@ -322,234 +425,343 @@ export function BookingModal({ open, onClose, userData }) {
             </div>
           )}
 
-          {/* Step 2: Date and Time Selection / AI */}
-          {step === 2 && (
+          {/* ── Step 2 (Predictive): date + auto-assigned optom + time ── */}
+          {step === 2 && mode === "predictive" && (
             <div className="space-y-6">
-              {/* Scheduling Preference */}
-              <div className="space-y-3">
-                <Label>Scheduling Preference</Label>
-
-                <div className="grid gap-3">
-                  {/* Manual */}
-                  <div
-                    onClick={() => setSchedulePreference("manual")}
-                    className={`p-4 border-2 rounded-lg cursor-pointer transition-all ${
-                      schedulePreference === "manual"
-                        ? "border-blue-500 bg-blue-50"
-                        : "border-gray-200 hover:border-blue-300"
-                    }`}
-                  >
-                    <p className="font-semibold">Manual Selection</p>
-                    <p className="text-sm text-gray-600">
-                      Choose your preferred date and time
-                    </p>
-                  </div>
-
-                  {/* Smart Allocation */}
-                  <div
-                    onClick={() => setSchedulePreference("smart")}
-                    className={`p-4 border-2 rounded-lg cursor-pointer transition-all ${
-                      schedulePreference === "smart"
-                        ? "border-purple-500 bg-purple-50"
-                        : "border-gray-200 hover:border-purple-300"
-                    }`}
-                  >
-                    <p className="font-semibold flex items-center gap-2">
-                      🤖 Smart Allocation (AI)
-                    </p>
-                    <p className="text-sm text-gray-600">
-                      Let AI find the most optimal schedule for you
-                    </p>
-                  </div>
+              <div className="space-y-2">
+                <Label>Select a date</Label>
+                <div className="flex justify-center">
+                  <Calendar
+                    mode="single"
+                    value={selectedDate}
+                    onChange={setSelectedDate}
+                    disabled={(date) => date < new Date()}
+                    className="rounded-md border"
+                  />
                 </div>
               </div>
 
-              {/* Manual Date & Time */}
-              {schedulePreference === "manual" && (
-                <>
-                  <div className="space-y-2">
-                    <Label>Select Date</Label>
-                    <div className="flex justify-center">
-                      <Calendar
-                        mode="single"
-                        value={selectedDate}
-                        onChange={setSelectedDate}
-                        disabled={(date) => date < new Date()}
-                        className="rounded-md border"
-                      />
-                    </div>
-                  </div>
-
-                  {selectedDate && (
-                    <div className="space-y-2">
-                      <Label>Select Time</Label>
-                      {loadingSlots ? (
-                        <p className="text-sm text-gray-500">Loading slots...</p>
-                      ) : availableSlots.length === 0 ? (
-                        <p className="text-sm text-gray-500">
-                          No slots available for this date.
-                        </p>
-                      ) : (
-                        <div className="grid grid-cols-3 gap-2">
-                          {availableSlots.map((time) => (
-                            <Button
-                              key={time}
-                              variant={
-                                selectedTime === time ? "default" : "outline"
-                              }
-                              onClick={() => setSelectedTime(time)}
-                            >
-                              <Clock className="w-4 h-4 mr-1" />
-                              {time}
-                            </Button>
-                          ))}
+              {selectedDate && (
+                <div className="rounded-lg border bg-white p-4">
+                  {loadingAssign ? (
+                    <p className="text-sm text-purple-700 animate-pulse">
+                      Finding the best optometrist for you…
+                    </p>
+                  ) : assignedOptom ? (
+                    <>
+                      <div className="flex items-start gap-4 pb-4 border-b">
+                        <Avatar className="w-14 h-14">
+                          <AvatarImage
+                            src={`https://api.dicebear.com/7.x/avataaars/svg?seed=${assignedOptom.optometristId}`}
+                          />
+                          <AvatarFallback>
+                            {assignedOptom.firstName?.[0] || "D"}
+                          </AvatarFallback>
+                        </Avatar>
+                        <div className="flex-1">
+                          <p className="text-xs text-purple-700 font-medium flex items-center gap-1">
+                            <Sparkles className="w-3.5 h-3.5" /> Auto-assigned
+                          </p>
+                          <p className="font-semibold text-lg">
+                            Dr. {assignedOptom.firstName}
+                            {assignedOptom.lastName
+                              ? ` ${assignedOptom.lastName}`
+                              : ""}
+                          </p>
+                          {typeof assignedOptom.compatibilityScore ===
+                            "number" && (
+                            <p className="text-sm text-gray-600">
+                              Compatibility score:{" "}
+                              <span className="font-medium">
+                                {assignedOptom.compatibilityScore}/100
+                              </span>
+                            </p>
+                          )}
+                          {/* Phase AI-3: ML-predicted attendance line.
+                              Hidden when prediction unavailable — the
+                              recommendation still works without it. */}
+                          {typeof assignedOptom.predictedAttendance ===
+                            "number" && (
+                            <p className="text-sm text-gray-600">
+                              Predicted attendance:{" "}
+                              <span className="font-medium">
+                                {Math.round(
+                                  assignedOptom.predictedAttendance * 100,
+                                )}
+                                %
+                              </span>
+                            </p>
+                          )}
+                          {assignReasons.length > 0 && (
+                            <p className="text-xs text-gray-500 mt-1">
+                              {assignReasons.slice(0, 3).join(" · ")}
+                            </p>
+                          )}
                         </div>
-                      )}
-                    </div>
-                  )}
-                </>
-              )}
+                      </div>
 
-              {/* AI Loader / Preview */}
-              {schedulePreference === "smart" && (
-                <div className="p-4 rounded-lg bg-purple-50 border border-purple-200 flex flex-col items-center gap-2">
-                  <p className="font-semibold mb-1">🤖 AI Scheduling Enabled</p>
-                  <p className="text-sm text-gray-600 text-center">
-                    Our system will analyze doctor availability, appointment
-                    type, and clinic load to assign the best possible date &
-                    time.
-                  </p>
-                  {aiLoading && (
-                    <div className="mt-4 animate-pulse text-purple-600 font-medium">
-                      Optimizing your schedule...
-                    </div>
+                      <div className="pt-4">
+                        <Label className="mb-2 block">
+                          Available times
+                        </Label>
+                        {availableSlots.length === 0 ? (
+                          <p className="text-sm text-gray-500">
+                            No free slots on this date — try another.
+                          </p>
+                        ) : (
+                          <div className="grid grid-cols-3 gap-2">
+                            {availableSlots.map((time) => (
+                              <Button
+                                key={time}
+                                variant={
+                                  selectedTime === time ? "default" : "outline"
+                                }
+                                onClick={() => setSelectedTime(time)}
+                              >
+                                <Clock className="w-4 h-4 mr-1" />
+                                {time}
+                              </Button>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    </>
+                  ) : (
+                    <p className="text-sm text-gray-500">
+                      No optometrist available for that date. Please try another.
+                    </p>
                   )}
                 </div>
               )}
             </div>
           )}
 
-          {/* Step 3: Patient Information */}
+          {/* ── Step 2 (Manual): optom dropdown + date + slot grid ── */}
+          {step === 2 && mode === "manual" && (
+            <div className="space-y-6">
+              <div className="space-y-2">
+                <Label htmlFor="manualOptom">Optometrist</Label>
+                <Select
+                  value={manualOptomId}
+                  onValueChange={(v) => {
+                    setManualOptomId(v);
+                    setSelectedTime("");
+                  }}
+                  disabled={loadingOptoms || optometrists.length === 0}
+                >
+                  <SelectTrigger id="manualOptom">
+                    <SelectValue
+                      placeholder={
+                        loadingOptoms
+                          ? "Loading optometrists…"
+                          : "Choose an optometrist"
+                      }
+                    />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {optometrists.map((o) => (
+                      <SelectItem key={o._id} value={o._id}>
+                        Dr. {o.firstName}
+                        {o.lastName ? ` ${o.lastName}` : ""}
+                        {o.specialty ? ` · ${o.specialty}` : ""}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="space-y-2">
+                <Label>Select a date</Label>
+                <div className="flex justify-center">
+                  <Calendar
+                    mode="single"
+                    value={selectedDate}
+                    onChange={(d) => {
+                      setSelectedDate(d);
+                      setSelectedTime("");
+                    }}
+                    disabled={(date) => date < new Date()}
+                    className="rounded-md border"
+                  />
+                </div>
+              </div>
+
+              {manualOptomId && selectedDate && (
+                <div className="rounded-lg border bg-white p-4">
+                  <Label className="mb-2 block">Available times</Label>
+                  {loadingManualSlots ? (
+                    <p className="text-sm text-gray-500">Loading times…</p>
+                  ) : manualSlots.length === 0 ? (
+                    <p className="text-sm text-gray-500">
+                      No free slots for this optometrist on the chosen date —
+                      try another date or another optometrist.
+                    </p>
+                  ) : (
+                    <div className="grid grid-cols-3 gap-2">
+                      {manualSlots.map((time) => (
+                        <Button
+                          key={time}
+                          variant={
+                            selectedTime === time ? "default" : "outline"
+                          }
+                          onClick={() => setSelectedTime(time)}
+                        >
+                          <Clock className="w-4 h-4 mr-1" />
+                          {time}
+                        </Button>
+                      ))}
+                    </div>
+                  )}
+                  <p className="text-[11px] text-gray-500 mt-2">
+                    Slots reflect the optometrist's working hours and
+                    existing bookings. Server-side conflict validation runs
+                    again on confirm.
+                  </p>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* ── Step 3: confirm ── */}
           {step === 3 && (
             <div className="space-y-4">
-              <div className="p-4 bg-blue-50 rounded-lg space-y-2">
-                <h3 className="font-semibold">Appointment Summary</h3>
-                <div className="space-y-1 text-sm">
-                  <p>
-                    <span className="text-gray-600">Doctor:</span>{" "}
-                    {doctors?.find((d) => d._id === selectedDoctor)?.firstName}
-                  </p>
+              <div className="rounded-lg border bg-blue-50 p-4 space-y-2">
+                <h3 className="font-semibold flex items-center gap-2">
+                  <CalendarIcon className="w-4 h-4" /> Appointment summary
+                </h3>
+                <div className="text-sm space-y-1">
                   <p>
                     <span className="text-gray-600">Type:</span>{" "}
                     {appointmentType}
                   </p>
                   <p>
                     <span className="text-gray-600">Date:</span>{" "}
-                    {selectedDate?.toLocaleDateString("en-US", {
+                    {selectedDate?.toLocaleDateString("en-GB", {
                       weekday: "long",
-                      year: "numeric",
-                      month: "long",
                       day: "numeric",
+                      month: "long",
+                      year: "numeric",
                     })}
                   </p>
                   <p>
                     <span className="text-gray-600">Time:</span> {selectedTime}
                   </p>
-                  {schedulePreference === "smart" && (
-                    <p className="text-purple-600 text-sm font-medium">
-                      🤖 Scheduled via Smart Allocation
-                    </p>
-                  )}
-                  {schedulePreference === "smart" && aiCompatibility !== null && (
-                    <p className="text-purple-600 text-xs">
-                      Compatibility {aiCompatibility}/100
-                      {aiExplanation.length > 0
-                        ? ` — ${aiExplanation.join(", ")}`
-                        : ""}
-                    </p>
-                  )}
                 </div>
               </div>
 
-              <div className="space-y-4">
-                <div className="space-y-2">
-                  <Label htmlFor="patientName">Full Name</Label>
-                  <div className="relative">
-                    <User className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-400" />
-                    <Input
-                      id="patientName"
-                      value={patientName}
-                      onChange={(e) => setPatientName(e.target.value)}
-                      className="pl-10"
-                      placeholder="Enter your full name"
-                    />
+              {mode === "predictive" ? (
+                <div className="rounded-lg border bg-purple-50 p-4">
+                  <p className="text-xs text-purple-700 font-medium flex items-center gap-1 mb-2">
+                    <Sparkles className="w-3.5 h-3.5" /> Auto-assigned optometrist
+                  </p>
+                  <div className="flex items-center gap-3">
+                    <Avatar className="w-12 h-12">
+                      <AvatarImage
+                        src={`https://api.dicebear.com/7.x/avataaars/svg?seed=${assignedOptom?.optometristId}`}
+                      />
+                      <AvatarFallback>
+                        {assignedOptom?.firstName?.[0] || "D"}
+                      </AvatarFallback>
+                    </Avatar>
+                    <div>
+                      <p className="font-semibold">
+                        Dr. {assignedOptom?.firstName}
+                        {assignedOptom?.lastName
+                          ? ` ${assignedOptom.lastName}`
+                          : ""}
+                      </p>
+                      {typeof assignedOptom?.compatibilityScore === "number" && (
+                        <p className="text-sm text-gray-600">
+                          Compatibility {assignedOptom.compatibilityScore}/100
+                        </p>
+                      )}
+                    </div>
                   </div>
+                  {assignReasons.length > 0 && (
+                    <p className="text-xs text-gray-600 mt-2">
+                      {assignReasons.slice(0, 3).join(" · ")}
+                    </p>
+                  )}
                 </div>
+              ) : (
+                (() => {
+                  const o = optometrists.find((x) => x._id === manualOptomId);
+                  return (
+                    <div className="rounded-lg border bg-white p-4">
+                      <p className="text-xs text-gray-700 font-medium flex items-center gap-1 mb-2">
+                        <User className="w-3.5 h-3.5" /> Selected optometrist
+                      </p>
+                      <div className="flex items-center gap-3">
+                        <Avatar className="w-12 h-12">
+                          <AvatarImage
+                            src={`https://api.dicebear.com/7.x/avataaars/svg?seed=${manualOptomId}`}
+                          />
+                          <AvatarFallback>
+                            {o?.firstName?.[0] || "D"}
+                          </AvatarFallback>
+                        </Avatar>
+                        <div>
+                          <p className="font-semibold">
+                            Dr. {o?.firstName || ""}
+                            {o?.lastName ? ` ${o.lastName}` : ""}
+                          </p>
+                          {o?.specialty && (
+                            <p className="text-sm text-gray-600">
+                              {o.specialty}
+                            </p>
+                          )}
+                        </div>
+                      </div>
+                      <p className="text-xs text-gray-500 mt-2">
+                        Manual selection — no AI recommendation applied to
+                        this booking.
+                      </p>
+                    </div>
+                  );
+                })()
+              )}
 
-                <div className="space-y-2">
-                  <Label htmlFor="patientPhone">Phone Number</Label>
-                  <div className="relative">
-                    <Phone className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-400" />
-                    <Input
-                      id="patientPhone"
-                      value={patientPhone}
-                      onChange={(e) => setPatientPhone(e.target.value)}
-                      className="pl-10"
-                      placeholder="Enter your phone number"
-                    />
-                  </div>
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="patientEmail">Email</Label>
-                  <div className="relative">
-                    <Mail className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-400" />
-                    <Input
-                      id="patientEmail"
-                      type="email"
-                      value={patientEmail}
-                      onChange={(e) => setPatientEmail(e.target.value)}
-                      className="pl-10"
-                      placeholder="Enter your email"
-                    />
-                  </div>
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="notes">Additional Notes (Optional)</Label>
-                  <Textarea
-                    id="notes"
-                    value={notes}
-                    onChange={(e) => setNotes(e.target.value)}
-                    placeholder="Any specific concerns or requirements..."
-                    rows={3}
-                  />
-                </div>
+              <div className="space-y-2">
+                <Label htmlFor="notes">Anything we should know? (optional)</Label>
+                <Textarea
+                  id="notes"
+                  value={notes}
+                  onChange={(e) => setNotes(e.target.value)}
+                  placeholder="e.g. wear contact lenses daily, sensitive to bright light…"
+                  rows={3}
+                />
               </div>
             </div>
           )}
         </div>
 
         <div className="flex items-center justify-between pt-4 border-t">
-          <Button variant="outline" onClick={handleClose}>
+          <Button variant="outline" onClick={handleClose} disabled={submitting}>
             Cancel
           </Button>
           <div className="flex gap-2">
             {step > 1 && (
-              <Button variant="outline" onClick={() => setStep(step - 1)}>
+              <Button
+                variant="outline"
+                onClick={() => setStep(step - 1)}
+                disabled={submitting}
+              >
                 Back
               </Button>
             )}
             {step < 3 ? (
               <Button
-                onClick={handleNextStep}
-                disabled={!isStepValid() || aiLoading}
+                onClick={() => setStep(step + 1)}
+                disabled={!isStepValid() || loadingAssign}
               >
-                {aiLoading ? "Optimizing Schedule..." : "Continue"}
+                Continue
               </Button>
             ) : (
-              <Button onClick={handleSubmit} disabled={!isStepValid()}>
-                Confirm Booking
+              <Button
+                onClick={handleSubmit}
+                disabled={!isStepValid() || submitting}
+              >
+                {submitting ? "Booking..." : "Confirm booking"}
               </Button>
             )}
           </div>

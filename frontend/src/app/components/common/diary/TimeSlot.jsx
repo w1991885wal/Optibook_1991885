@@ -1,6 +1,11 @@
 import AppointmentBlock from "./AppointmentBlock";
 
-export default function TimeSlot({ time, appointment, onDrop }) {
+export default function TimeSlot({
+  time,
+  appointment,
+  onDrop,
+  onAppointmentClick,
+}) {
   const handleDragOver = (e) => {
     if (onDrop) e.preventDefault();
   };
@@ -22,7 +27,10 @@ export default function TimeSlot({ time, appointment, onDrop }) {
 
       <div className="min-h-13" onDragOver={handleDragOver} onDrop={handleDrop}>
         {appointment ? (
-          <AppointmentBlock data={appointment} />
+          <AppointmentBlock
+            data={appointment}
+            onClick={onAppointmentClick}
+          />
         ) : (
           <div className="h-13 rounded-md border border-dashed" />
         )}

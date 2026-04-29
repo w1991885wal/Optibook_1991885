@@ -9,6 +9,7 @@ import {
   LogOut,
   Menu,
   Eye,
+  RefreshCw,
 } from "lucide-react";
 import { cn } from "../../ui/utils";
 import useIsMobile from "../../../hook/useIsMobile";
@@ -18,6 +19,7 @@ const navItems = [
   { label: "Dashboard", icon: LayoutDashboard, key: "dashboard" },
   { label: "My Diary", icon: Calendar, key: "diary" },
   { label: "My Patients", icon: Users, key: "patients" },
+  { label: "Recalls", icon: RefreshCw, key: "recalls" },
   { label: "Waitlist", icon: List, key: "waitlist" },
   { label: "Schedule Setting", icon: Settings, key: "settings" },
   { label: "Notifications", icon: Bell, key: "notifications" },
