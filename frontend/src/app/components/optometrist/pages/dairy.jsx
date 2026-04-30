@@ -8,15 +8,17 @@ import AppointmentDetailDialog from "../AppointmentDetailDialog";
 import API from "../../../../lib/api";
 import { getMeOptom } from "../../../../lib/optometrist";
 
+// 30-minute rail so an appointment at :30 renders between the hour rows
+// instead of falling into the off-rail safety bucket below the grid.
 const TIME_SLOTS = [
-  "9:00 AM",
-  "10:00 AM",
-  "11:00 AM",
-  "12:00 PM",
-  "1:00 PM",
-  "2:00 PM",
-  "3:00 PM",
-  "4:00 PM",
+  "9:00 AM",  "9:30 AM",
+  "10:00 AM", "10:30 AM",
+  "11:00 AM", "11:30 AM",
+  "12:00 PM", "12:30 PM",
+  "1:00 PM",  "1:30 PM",
+  "2:00 PM",  "2:30 PM",
+  "3:00 PM",  "3:30 PM",
+  "4:00 PM",  "4:30 PM",
   "5:00 PM",
 ];
 const DAY_KEYS = ["mon", "tue", "wed", "thu", "fri", "sat"];
@@ -221,7 +223,9 @@ export default function Diary() {
     if (!lunchRange) return false;
     const start = labelToMinutes(label);
     if (start == null) return false;
-    const end = start + 60;
+    // Each rail row now represents 30 minutes, not 60. Without this change
+    // the lunch band would falsely overlay two adjacent 30-min slots.
+    const end = start + 30;
     // overlap: slot[start,end) intersects lunch[s,e)
     return start < lunchRange[1] && end > lunchRange[0];
   };
