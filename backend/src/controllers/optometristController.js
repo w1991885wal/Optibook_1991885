@@ -1,4 +1,5 @@
 const Optometrist = require('../models/Optometrist');
+const User = require('../models/User');
 const asyncHandler = require('../utils/asyncHandler');
 const ApiError = require('../utils/ApiError');
 
@@ -54,6 +55,55 @@ const validateLunch = (lb) => {
   if (lb.start >= lb.end) return 'lunchBreak.start must be before end';
   return null;
 };
+
+// Admin-only: provision a new optometrist account. Creates the auth User
+// (role=optometrist) and the linked Optometrist profile. If profile creation
+// fails, the just-created User is deleted to avoid an orphan auth record.
+// No JWT is issued — the admin is creating an account on the staff member's
+// behalf, not logging in as them.
+exports.createOptometrist = asyncHandler(async (req, res) => {
+  const {
+    email,
+    password,
+    firstName,
+    lastName,
+    specialty,
+    languages,
+    roomNumber,
+    yearsExperience,
+  } = req.body;
+
+  const userExists = await User.findOne({ email });
+  if (userExists) throw new ApiError(400, 'User already exists');
+
+  const user = await User.create({ email, password, role: 'optometrist' });
+
+  let optometrist;
+  try {
+    optometrist = await Optometrist.create({
+      user: user._id,
+      firstName,
+      lastName,
+      specialty,
+      languages,
+      roomNumber,
+      ...(yearsExperience !== undefined ? { yearsExperience } : {}),
+    });
+  } catch (err) {
+    // Rollback: drop the orphan User so a failed profile create does not
+    // leave a half-provisioned account behind.
+    await User.findByIdAndDelete(user._id).catch(() => {});
+    throw err;
+  }
+
+  res.status(201).json({
+    success: true,
+    data: {
+      user: { id: user._id, email: user.email, role: user.role },
+      optometrist,
+    },
+  });
+});
 
 exports.getOptometrists = asyncHandler(async (req, res) => {
   const optometrists = await Optometrist.find().populate('user');
