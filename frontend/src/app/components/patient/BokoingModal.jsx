@@ -40,6 +40,53 @@ const APPOINTMENT_TYPES = [
   "PCO Test + Eye Test",
 ];
 
+// Patient-facing labels for the per-factor compatibility "explanation" the
+// backend already returns on /ai/recommend-optometrist. Raw IDs are never
+// shown — only friendly sentences a patient can understand.
+const FACTOR_LABELS = {
+  "specialty-fit": "Good fit for your appointment type",
+  "language-fit": "Speaks your preferred language",
+  "age-group-fit": "Suitable for your age group",
+  continuity: "You've seen them before",
+  experience: "Has relevant experience",
+};
+
+// Slot-level reasons returned by /ai/recommend-slots. The score itself is
+// already shown next to the optometrist; raw "Strong compatibility" /
+// "Low no-show risk" labels are intentionally dropped here because the
+// numeric compatibility score and predicted-attendance line cover them.
+const SLOT_REASON_LABELS = {
+  "Matches patient preferred time": "Matches your preferred time",
+};
+
+// Patient-side specialty display: "Pediatric" is suppressed from the
+// patient-facing card per product direction. All other values render
+// verbatim. Returns null when nothing should be shown.
+const patientSpecialtyLabel = (s) => (s && s !== "Pediatric" ? s : null);
+
+// Build the deduped, plain-English reason list for "Why we recommended them".
+// Inputs: the recommend-optometrist row (has explanation + predictedAttendance)
+// and the per-slot reasons array from recommend-slots.
+function buildFriendlyReasons(assignedOptom, slotReasons) {
+  const out = [];
+  const seen = new Set();
+  const push = (s) => {
+    if (s && !seen.has(s)) {
+      seen.add(s);
+      out.push(s);
+    }
+  };
+  for (const f of assignedOptom?.explanation || []) push(FACTOR_LABELS[f]);
+  for (const r of slotReasons || []) push(SLOT_REASON_LABELS[r]);
+  if (
+    typeof assignedOptom?.predictedAttendance === "number" &&
+    assignedOptom.predictedAttendance >= 0.7
+  ) {
+    push("Higher likelihood of attending this appointment");
+  }
+  return out;
+}
+
 export function BookingModal({ open, onClose }) {
   // Booking-Manual: two-mode patient flow.
   //   "predictive" — original AI-assisted flow (unchanged behaviour)
@@ -166,7 +213,7 @@ export function BookingModal({ open, onClose }) {
             appointmentType,
           });
           reasons = detailRes.data.data?.[0]?.reasons || [];
-        } catch (_) {
+        } catch {
           /* non-fatal */
         }
 
@@ -492,11 +539,25 @@ export function BookingModal({ open, onClose }) {
                               </span>
                             </p>
                           )}
-                          {assignReasons.length > 0 && (
-                            <p className="text-xs text-gray-500 mt-1">
-                              {assignReasons.slice(0, 3).join(" · ")}
-                            </p>
-                          )}
+                          {(() => {
+                            const reasons = buildFriendlyReasons(
+                              assignedOptom,
+                              assignReasons,
+                            );
+                            if (reasons.length === 0) return null;
+                            return (
+                              <div className="mt-2">
+                                <p className="text-xs font-medium text-purple-700">
+                                  Why we recommended them
+                                </p>
+                                <ul className="mt-1 space-y-0.5 text-xs text-gray-600">
+                                  {reasons.map((r) => (
+                                    <li key={r}>· {r}</li>
+                                  ))}
+                                </ul>
+                              </div>
+                            );
+                          })()}
                         </div>
                       </div>
 
@@ -677,11 +738,25 @@ export function BookingModal({ open, onClose }) {
                       )}
                     </div>
                   </div>
-                  {assignReasons.length > 0 && (
-                    <p className="text-xs text-gray-600 mt-2">
-                      {assignReasons.slice(0, 3).join(" · ")}
-                    </p>
-                  )}
+                  {(() => {
+                    const reasons = buildFriendlyReasons(
+                      assignedOptom,
+                      assignReasons,
+                    );
+                    if (reasons.length === 0) return null;
+                    return (
+                      <div className="mt-2">
+                        <p className="text-xs font-medium text-purple-700">
+                          Why we recommended them
+                        </p>
+                        <ul className="mt-1 space-y-0.5 text-xs text-gray-600">
+                          {reasons.map((r) => (
+                            <li key={r}>· {r}</li>
+                          ))}
+                        </ul>
+                      </div>
+                    );
+                  })()}
                 </div>
               ) : (
                 (() => {
@@ -705,9 +780,9 @@ export function BookingModal({ open, onClose }) {
                             Dr. {o?.firstName || ""}
                             {o?.lastName ? ` ${o.lastName}` : ""}
                           </p>
-                          {o?.specialty && (
+                          {patientSpecialtyLabel(o?.specialty) && (
                             <p className="text-sm text-gray-600">
-                              {o.specialty}
+                              {patientSpecialtyLabel(o?.specialty)}
                             </p>
                           )}
                         </div>

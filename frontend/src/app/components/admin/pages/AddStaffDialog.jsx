@@ -20,8 +20,11 @@ import {
 import { toast } from "sonner";
 import { createOptometrist } from "../../../../lib/optometrist";
 
-// Specialty list mirrors the Optometrist model enum + the Phase B validator.
-const SPECIALTIES = ["General", "Contact Lens", "Pediatric", "Senior"];
+// Specialty list shown in the Add Optometrist dialog. The Optometrist model
+// enum still includes "Pediatric" for legacy data, but it is intentionally
+// omitted from the visible UI per product direction — admins should not be
+// able to provision a new account under that specialty going forward.
+const SPECIALTIES = ["General", "Contact Lens", "Senior"];
 
 const EMPTY = {
   firstName: "",

@@ -26,6 +26,15 @@ import AddStaffDialog from "./AddStaffDialog";
 
 const NOT_TRACKED = "Not yet tracked";
 
+// Admin-side specialty display. The model enum still includes "Pediatric"
+// for legacy rows, but per product direction the word is no longer shown
+// in the UI. Legacy rows render as "—" so the page does not break.
+const adminSpecialtyLabel = (s) => {
+  if (!s) return "—";
+  if (s === "Pediatric") return "—";
+  return s;
+};
+
 const displayName = (o) =>
   `Dr. ${(o.firstName || "").trim()} ${(o.lastName || "").trim()}`.trim();
 
@@ -239,7 +248,7 @@ export default function StaffManagement({ setActive }) {
                       <div className="text-sm text-gray-500 flex flex-wrap gap-4 mt-1">
                         <span className="flex items-center gap-1">
                           <GraduationCap className="w-3 h-3" />{" "}
-                          {member.specialty || "—"}
+                          {adminSpecialtyLabel(member.specialty)}
                         </span>
                         <span className="flex items-center gap-1">
                           <Building className="w-3 h-3" />{" "}
