@@ -8,7 +8,7 @@ const { getNextPatientNumber } = require('../utils/patientNumber');
 
 const generateToken = (id) =>
   jwt.sign({ id }, process.env.JWT_SECRET, {
-    expiresIn: process.env.JWT_EXPIRE,
+    expiresIn: process.env.JWT_EXPIRE || '7d',
   });
 
 exports.register = asyncHandler(async (req, res) => {
