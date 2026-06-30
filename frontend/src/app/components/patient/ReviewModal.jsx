@@ -144,6 +144,11 @@ export default function ReviewModal({
       }`
     : "your optometrist";
 
+  // Derived purely from `ratings` — no new state. Used for the unanswered
+  // progress hint and to keep the header chip in sync.
+  const answeredCount = ratings.filter((r) => typeof r === "number").length;
+  const commentNearLimit = comment.length >= 450;
+
   return (
     <Dialog
       open={open}
@@ -151,56 +156,108 @@ export default function ReviewModal({
         if (!v && !submitting) onClose?.();
       }}
     >
-      <DialogContent className="sm:max-w-2xl max-h-[90vh] overflow-y-auto">
-        <DialogHeader>
-          <DialogTitle>
-            {mode === "view" ? "Your review" : "Review your appointment"}
-          </DialogTitle>
-          <DialogDescription>
-            {appointment.appointmentType} with {optomName} ·{" "}
-            {fmtDate(appointment.date)}
-          </DialogDescription>
-        </DialogHeader>
-
-        <div className="space-y-5">
-          {REVIEW_QUESTIONS.map((q, i) => (
-            <div key={i} className="space-y-2">
-              <Label className="text-sm">
-                {i + 1}. {q}
-              </Label>
-              <div className="flex flex-wrap gap-2">
-                {ALLOWED_RATINGS.map((value) => {
-                  const selected = ratings[i] === value;
-                  return (
-                    <button
-                      key={value}
-                      type="button"
-                      disabled={mode === "view" || submitting}
-                      onClick={() => setRatingAt(i, value)}
-                      className={[
-                        "px-3 py-1 rounded-md text-sm border transition",
-                        selected
-                          ? "bg-blue-600 text-white border-blue-600"
-                          : "bg-white text-gray-700 border-gray-300 hover:bg-gray-50",
-                        mode === "view" && !selected
-                          ? "opacity-40 cursor-default"
-                          : "",
-                        mode === "view" && selected
-                          ? "cursor-default"
-                          : "",
-                      ].join(" ")}
-                    >
-                      {value.toFixed(1)}
-                    </button>
-                  );
-                })}
+      <DialogContent className="sm:max-w-2xl max-h-[90vh] overflow-y-auto rounded-2xl p-0">
+        {/* Header band — softer gradient, larger title, status chip on the right */}
+        <div className="rounded-t-2xl bg-gradient-to-br from-blue-50 via-indigo-50 to-white px-6 pt-6 pb-5 border-b border-gray-100">
+          <DialogHeader className="space-y-1.5">
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0">
+                <DialogTitle className="text-2xl font-semibold tracking-tight text-gray-900">
+                  {mode === "view" ? "Your review" : "Review your appointment"}
+                </DialogTitle>
+                <DialogDescription className="text-sm text-gray-600">
+                  {appointment.appointmentType} · {optomName} ·{" "}
+                  {fmtDate(appointment.date)}
+                </DialogDescription>
               </div>
+              <span
+                aria-live="polite"
+                className={[
+                  "shrink-0 inline-flex items-center rounded-full px-2.5 py-1 text-xs font-medium ring-1",
+                  mode === "view"
+                    ? "bg-emerald-50 text-emerald-700 ring-emerald-200"
+                    : allAnswered
+                    ? "bg-blue-50 text-blue-700 ring-blue-200"
+                    : "bg-gray-50 text-gray-600 ring-gray-200",
+                ].join(" ")}
+              >
+                {mode === "view"
+                  ? "Submitted"
+                  : `${answeredCount}/5 answered`}
+              </span>
             </div>
-          ))}
+          </DialogHeader>
+        </div>
 
-          <div className="space-y-2">
-            <Label className="text-sm" htmlFor="reviewComment">
-              Comment (optional)
+        <div className="px-6 py-5 space-y-4">
+          {REVIEW_QUESTIONS.map((q, i) => {
+            const answered = typeof ratings[i] === "number";
+            return (
+              <div
+                key={i}
+                className={[
+                  "rounded-xl border bg-white p-4 shadow-sm transition",
+                  mode === "create"
+                    ? answered
+                      ? "border-blue-200"
+                      : "border-gray-200 hover:border-gray-300"
+                    : "border-gray-200",
+                ].join(" ")}
+              >
+                <div className="flex items-start gap-3 mb-3">
+                  <span
+                    className={[
+                      "shrink-0 inline-flex items-center justify-center w-6 h-6 rounded-full text-xs font-semibold",
+                      answered
+                        ? "bg-blue-600 text-white"
+                        : "bg-blue-50 text-blue-700 ring-1 ring-blue-200",
+                    ].join(" ")}
+                    aria-hidden="true"
+                  >
+                    {i + 1}
+                  </span>
+                  <Label className="text-sm font-medium text-gray-800 leading-snug pt-0.5">
+                    {q}
+                  </Label>
+                </div>
+                <div className="flex flex-wrap gap-2.5 pl-9">
+                  {ALLOWED_RATINGS.map((value) => {
+                    const selected = ratings[i] === value;
+                    return (
+                      <button
+                        key={value}
+                        type="button"
+                        disabled={mode === "view" || submitting}
+                        onClick={() => setRatingAt(i, value)}
+                        className={[
+                          "px-4 py-2 rounded-full text-sm font-medium border transition",
+                          selected
+                            ? "bg-blue-600 text-white border-blue-600 shadow-md ring-2 ring-blue-600/20"
+                            : "bg-white text-gray-600 border-gray-200 hover:border-blue-300 hover:bg-blue-50/40 hover:text-blue-700",
+                          mode === "view" && !selected
+                            ? "opacity-30 cursor-default hover:bg-white hover:text-gray-600 hover:border-gray-200"
+                            : "",
+                          mode === "view" && selected
+                            ? "cursor-default ring-emerald-500/20 border-emerald-600 bg-emerald-600 shadow-sm"
+                            : "",
+                        ].join(" ")}
+                      >
+                        {value.toFixed(1)}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            );
+          })}
+
+          <div className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm space-y-2">
+            <Label
+              className="text-sm font-medium text-gray-800"
+              htmlFor="reviewComment"
+            >
+              Comment{" "}
+              <span className="font-normal text-gray-400">(optional)</span>
             </Label>
             <textarea
               id="reviewComment"
@@ -210,45 +267,78 @@ export default function ReviewModal({
               rows={3}
               disabled={mode === "view" || submitting}
               placeholder="Anything you'd like to share about your visit?"
-              className="w-full border rounded-md px-3 py-2 text-sm disabled:bg-gray-50 disabled:text-gray-700"
+              className="w-full border border-gray-200 rounded-xl px-3.5 py-2.5 text-sm placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-600/20 focus:border-blue-400 disabled:bg-gray-50 disabled:text-gray-700 transition"
             />
-            <div className="flex justify-end text-[11px] text-gray-500">
-              {comment.length}/500
+            <div className="flex justify-end">
+              <span
+                className={[
+                  "inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-medium tabular-nums transition",
+                  commentNearLimit
+                    ? "bg-amber-50 text-amber-700 ring-1 ring-amber-200"
+                    : "text-gray-500",
+                ].join(" ")}
+              >
+                {comment.length}/500
+              </span>
             </div>
           </div>
 
           {/* Live average preview only after all 5 questions answered. */}
-          <div className="rounded-md border bg-gray-50 p-3 text-sm">
+          <div
+            className={[
+              "rounded-xl border p-4 transition",
+              mode === "view"
+                ? "bg-gradient-to-r from-emerald-50 to-teal-50 border-emerald-100"
+                : allAnswered
+                ? "bg-gradient-to-r from-blue-50 to-indigo-50 border-blue-100"
+                : "bg-gray-50 border-gray-200",
+            ].join(" ")}
+          >
             {mode === "view" ? (
-              <div>
-                <span className="text-gray-500">Submitted average:</span>{" "}
-                <span className="font-semibold">
+              <div className="flex items-baseline gap-3">
+                <span className="text-xs uppercase tracking-wide text-emerald-700/80 font-semibold">
+                  Submitted average
+                </span>
+                <span className="ml-auto text-3xl font-bold text-emerald-700 tabular-nums">
                   {existingReview
                     ? Number(existingReview.averageRating).toFixed(1)
                     : "—"}
-                  {" "}/ 5
+                </span>
+                <span className="text-sm text-emerald-700/70 font-medium">
+                  / 5
                 </span>
               </div>
             ) : allAnswered ? (
-              <div>
-                <span className="text-gray-500">Your average:</span>{" "}
-                <span className="font-semibold">
-                  {liveAverage.toFixed(1)} / 5
+              <div className="flex items-baseline gap-3">
+                <span className="text-xs uppercase tracking-wide text-blue-700/80 font-semibold">
+                  Your average
+                </span>
+                <span className="ml-auto text-3xl font-bold text-blue-700 tabular-nums">
+                  {liveAverage.toFixed(1)}
+                </span>
+                <span className="text-sm text-blue-700/70 font-medium">
+                  / 5
                 </span>
               </div>
             ) : (
-              <div className="text-gray-500">
-                Answer all 5 questions to see the average and submit.
+              <div className="flex items-center justify-between gap-3">
+                <span className="text-sm text-gray-600">
+                  Answer all 5 questions to see your average and submit.
+                </span>
+                <span className="shrink-0 text-xs font-medium text-gray-500 tabular-nums">
+                  {answeredCount}/5
+                </span>
               </div>
             )}
           </div>
         </div>
 
-        <DialogFooter>
+        <DialogFooter className="px-6 pb-5 pt-1 gap-2">
           <Button
-            variant="ghost"
+            variant="outline"
             onClick={() => onClose?.()}
             disabled={submitting}
+            className="rounded-full"
           >
             {mode === "view" ? "Close" : "Cancel"}
           </Button>
@@ -256,6 +346,7 @@ export default function ReviewModal({
             <Button
               onClick={handleSubmit}
               disabled={!allAnswered || submitting}
+              className="rounded-full bg-blue-600 hover:bg-blue-700 shadow-sm"
             >
               {submitting ? "Submitting…" : "Submit review"}
             </Button>
