@@ -18,6 +18,7 @@ exports.authLimiter = rateLimit({
   max: 10,
   standardHeaders: true,
   legacyHeaders: false,
+  skipSuccessfulRequests: true,
   message: {
     success: false,
     message: 'Too many authentication attempts, please try again in 15 minutes',
