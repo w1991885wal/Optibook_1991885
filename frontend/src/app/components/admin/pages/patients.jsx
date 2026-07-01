@@ -16,6 +16,7 @@ import { Button } from "../../ui/button";
 import { Avatar, AvatarFallback } from "../../ui/avatar";
 import { ToggleButton } from "../../common/toggle";
 import API from "../../../../lib/api";
+import AdminPatientDetailModal from "../AdminPatientDetailModal";
 
 // Admin Patients page.
 // - Patient list now reads real GET /patients (replacing mock-data.patients).
@@ -84,6 +85,15 @@ export default function PatientsPage() {
   const [patients, setPatients] = useState([]);
   const [loading, setLoading] = useState(true);
   const [query, setQuery] = useState("");
+  const [selectedPatientId, setSelectedPatientId] = useState(null);
+
+  // Merge the saved patient back into the list without a refetch.
+  const handlePatientSaved = (updated) => {
+    if (!updated?._id) return;
+    setPatients((prev) =>
+      prev.map((p) => (p._id === updated._id ? { ...p, ...updated } : p)),
+    );
+  };
 
   useEffect(() => {
     let cancelled = false;
@@ -316,6 +326,7 @@ export default function PatientsPage() {
                       size="sm"
                       className="cursor-pointer"
                       variant={"outline"}
+                      onClick={() => setSelectedPatientId(patient._id)}
                     >
                       View/Edit Details
                     </Button>
@@ -326,6 +337,13 @@ export default function PatientsPage() {
           })}
         </div>
       </Card>
+
+      <AdminPatientDetailModal
+        open={!!selectedPatientId}
+        patientId={selectedPatientId}
+        onClose={() => setSelectedPatientId(null)}
+        onSaved={handlePatientSaved}
+      />
     </div>
   );
 }
