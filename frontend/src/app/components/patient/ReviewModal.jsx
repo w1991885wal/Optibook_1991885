@@ -220,32 +220,124 @@ export default function ReviewModal({
                     {q}
                   </Label>
                 </div>
-                <div className="flex flex-wrap gap-2.5 pl-9">
-                  {ALLOWED_RATINGS.map((value) => {
-                    const selected = ratings[i] === value;
-                    return (
-                      <button
-                        key={value}
-                        type="button"
-                        disabled={mode === "view" || submitting}
-                        onClick={() => setRatingAt(i, value)}
-                        className={[
-                          "px-4 py-2 rounded-full text-sm font-medium border transition",
-                          selected
-                            ? "bg-blue-600 text-white border-blue-600 shadow-md ring-2 ring-blue-600/20"
-                            : "bg-white text-gray-600 border-gray-200 hover:border-blue-300 hover:bg-blue-50/40 hover:text-blue-700",
-                          mode === "view" && !selected
-                            ? "opacity-30 cursor-default hover:bg-white hover:text-gray-600 hover:border-gray-200"
-                            : "",
-                          mode === "view" && selected
-                            ? "cursor-default ring-emerald-500/20 border-emerald-600 bg-emerald-600 shadow-sm"
-                            : "",
-                        ].join(" ")}
+                <div
+                  role="radiogroup"
+                  aria-label="Rating: 1 to 5, half-step increments"
+                  aria-readonly={mode === "view" ? "true" : undefined}
+                  className="pl-9"
+                >
+                  {/* Label row — only major ticks (1–5) carry a number */}
+                  <div className="grid grid-cols-9 mb-1 select-none">
+                    {ALLOWED_RATINGS.map((value) => {
+                      const isMajor = Number.isInteger(value);
+                      const isSelectedMajor = ratings[i] === value && isMajor;
+                      return (
+                        <div
+                          key={`lbl-${value}`}
+                          className={[
+                            "text-center text-xs tabular-nums transition",
+                            isMajor
+                              ? isSelectedMajor
+                                ? mode === "view"
+                                  ? "font-bold text-emerald-700"
+                                  : "font-bold text-blue-700"
+                                : "font-semibold text-gray-700"
+                              : "text-transparent",
+                          ].join(" ")}
+                          aria-hidden="true"
+                        >
+                          {isMajor ? value : "·"}
+                        </div>
+                      );
+                    })}
+                  </div>
+
+                  {/* Tick row — 9 clickable cells over a shared baseline */}
+                  <div className="relative grid grid-cols-9">
+                    <div
+                      className="absolute left-0 right-0 bottom-2 h-px bg-gray-200"
+                      aria-hidden="true"
+                    />
+                    {ALLOWED_RATINGS.map((value) => {
+                      const isMajor = Number.isInteger(value);
+                      const selected = ratings[i] === value;
+                      const readOnly = mode === "view";
+                      return (
+                        <button
+                          key={value}
+                          type="button"
+                          role="radio"
+                          aria-checked={selected}
+                          aria-label={`Rate ${value} out of 5`}
+                          disabled={readOnly || submitting}
+                          onClick={() => setRatingAt(i, value)}
+                          className={[
+                            "relative z-10 flex flex-col items-center justify-end py-2.5 group rounded-md transition",
+                            readOnly
+                              ? "cursor-default"
+                              : "hover:bg-blue-50/40 cursor-pointer",
+                          ].join(" ")}
+                        >
+                          {/* Selected dot — fixed-height slot keeps ticks aligned whether selected or not */}
+                          <span
+                            className={[
+                              "block w-3 h-3 rounded-full mb-1 transition",
+                              selected
+                                ? readOnly
+                                  ? "bg-emerald-600 ring-2 ring-emerald-600/25"
+                                  : "bg-blue-600 ring-2 ring-blue-600/20"
+                                : "bg-transparent",
+                            ].join(" ")}
+                            aria-hidden="true"
+                          />
+                          {/* Tick line — taller for majors, also taller when selected */}
+                          <span
+                            className={[
+                              "block transition-colors",
+                              isMajor ? "w-0.5" : "w-px",
+                              selected
+                                ? "h-7"
+                                : isMajor
+                                ? "h-6"
+                                : "h-3",
+                              selected
+                                ? readOnly
+                                  ? "bg-emerald-600"
+                                  : "bg-blue-600"
+                                : isMajor
+                                ? readOnly
+                                  ? "bg-gray-300"
+                                  : "bg-gray-400 group-hover:bg-blue-400"
+                                : readOnly
+                                ? "bg-gray-200"
+                                : "bg-gray-300 group-hover:bg-blue-300",
+                            ].join(" ")}
+                            aria-hidden="true"
+                          />
+                        </button>
+                      );
+                    })}
+                  </div>
+
+                  {/* Readout — explicit value (esp. helpful for half-steps) */}
+                  <div className="mt-2 text-xs tabular-nums">
+                    {typeof ratings[i] === "number" ? (
+                      <span
+                        className={
+                          mode === "view"
+                            ? "text-emerald-700 font-medium"
+                            : "text-blue-700 font-medium"
+                        }
                       >
-                        {value.toFixed(1)}
-                      </button>
-                    );
-                  })}
+                        Selected:{" "}
+                        <span className="font-semibold">
+                          {ratings[i].toFixed(1)} / 5
+                        </span>
+                      </span>
+                    ) : (
+                      <span className="text-gray-400">No rating selected</span>
+                    )}
+                  </div>
                 </div>
               </div>
             );
