@@ -23,6 +23,7 @@ const PATIENT_PROTECTED_FIELDS = [
   'nextRecallDate',
   'eyeTestRecallDate',
   'contactLensRecallDate',
+  'internalNotes',
 ];
 
 exports.getPatients = asyncHandler(async (req, res) => {

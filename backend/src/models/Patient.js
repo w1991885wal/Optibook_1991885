@@ -76,6 +76,12 @@ const patientSchema = new mongoose.Schema(
     contactLensRecallDate: {
       type: Date,
     },
+    // Admin-only internal note about the patient. Free text. Protected on
+    // patient-role self-updates via PATIENT_PROTECTED_FIELDS in the controller.
+    internalNotes: {
+      type: String,
+      default: '',
+    },
   },
   {
     timestamps: true,
