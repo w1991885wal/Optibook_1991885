@@ -21,17 +21,26 @@ const defaultOptions = {
   responsive: true,
   maintainAspectRatio: false,
   plugins: {
-    legend: { display: false },
+    legend: {
+      display: true,
+      position: "bottom",
+      labels: { usePointStyle: true, boxWidth: 8 },
+    },
     tooltip: {
       callbacks: {
-        label: (ctx) => `${ctx.parsed.y}% no-show`,
+        label: (ctx) =>
+          `${ctx.dataset.label || "No-show rate"}: ${Number(
+            ctx.parsed.y,
+          ).toFixed(1)}%`,
       },
     },
   },
   scales: {
     y: {
+      // Auto-scale to the data (sparse days can legitimately hit 100%),
+      // but keep a sensible floor so quiet periods don't look jagged.
       beginAtZero: true,
-      max: 20,
+      suggestedMax: 20,
       ticks: {
         callback: (value) => `${value}%`,
       },
