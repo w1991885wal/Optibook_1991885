@@ -37,6 +37,19 @@ Copy `.env.example` to `.env`. All variables are required:
 
 The synthetic seed uses a fixed RNG seed (2026) so re-runs produce the same patient set. Each patient is created via the canonical `getNextPatientNumber()` so numbering stays consistent with the existing demo data.
 
+### Demo-preparation utilities (AI-assisted)
+
+The following one-shot utilities in `src/utils/` were written with AI assistance (Claude) purely to prepare **synthetic demo data** for the project demonstration. They are demo scaffolding, not part of the product codebase, and are never invoked by the running application:
+
+| Script | Run with | Effect |
+|---|---|---|
+| `seedRecalls.js` | `node src/utils/seedRecalls.js` | Patches existing patients with split eye-test / contact-lens recall dates across 8 patterns (overdue, due soon, upcoming) |
+| `seedDiary.js` | `node src/utils/seedDiary.js` | Fills the diary around the current week with risk-scored appointments across all optometrists |
+| `seedReviews.js` | `node src/utils/seedReviews.js` | Adds reviews with realistic ratings to a sample of completed appointments |
+| `redateAppointments.js` | `node src/utils/redateAppointments.js` | Re-dates all appointments so history and future bookings sit around the current date, and guarantees every patient has one review-pending completed appointment |
+
+All are idempotent or safe to re-run and operate on synthetic data only. Core seeds (`seed.js`, `seedDemo.js`, `seedSynthetic.js`, `syntheticData.js`) and all application code are original work.
+
 ## API surface (selected)
 
 ### Authentication
