@@ -22,6 +22,14 @@ OptiBook is a three-tier web application for independent optical clinics. It sup
 | AI pipeline | Synthetic data → trained classifier → diary risk badges → admin model card → patient booking re-rank |
 | Reviews | Five-question rating scale (1.0–5.0 in 0.5 steps), three-layer duplicate guard, satisfaction surfaces |
 
+## Live demo
+
+The application is deployed on Render and can be accessed directly — no local setup required:
+
+**https://optibook-frontend.onrender.com**
+
+Log in with any of the [demo credentials](#demo-credentials) below. The backend API runs at `https://optibook-backend.onrender.com` (kept warm by a scheduled GitHub Actions ping; if it has been idle the first request may take up to a minute).
+
 ## Quick start
 
 ### Prerequisites
