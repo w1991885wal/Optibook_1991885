@@ -1,6 +1,6 @@
 # OptiBook
 
-An AI-augmented optical-clinic scheduling system, delivered as a UK Final Year Project (W1991885).
+An AI-augmented optical-clinic scheduling system, delivered as Final Year Project (W1991885).
 
 ## Overview
 
