@@ -624,7 +624,9 @@ export function BookingModal({ open, onClose }) {
                       <SelectItem key={o._id} value={o._id}>
                         Dr. {o.firstName}
                         {o.lastName ? ` ${o.lastName}` : ""}
-                        {o.specialty ? ` · ${o.specialty}` : ""}
+                        {patientSpecialtyLabel(o.specialty)
+                          ? ` · ${patientSpecialtyLabel(o.specialty)}`
+                          : ""}
                       </SelectItem>
                     ))}
                   </SelectContent>

@@ -70,7 +70,7 @@ export default function DashboardComponent({ setActive }) {
           <CardContent className="pt-6">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm text-gray-600 mb-1">Utilization Rate</p>
+                <p className="text-sm text-gray-600 mb-1">Utilisation Rate</p>
                 <p className="text-2xl font-bold">87%</p>
               </div>
               <div className="w-12 h-12 bg-purple-100 rounded-lg flex items-center justify-center">

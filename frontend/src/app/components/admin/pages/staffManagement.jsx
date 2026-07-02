@@ -135,7 +135,7 @@ export default function StaffManagement({ setActive }) {
             <div className="flex flex-col gap-2">
               <div className="flex items-center justify-between">
                 <div>
-                  <p className="text-sm text-black mb-1">Avg Utilization</p>
+                  <p className="text-sm text-black mb-1">Avg Utilisation</p>
                   <p
                     className="text-2xl font-bold text-gray-400"
                     title={NOT_TRACKED}
@@ -264,7 +264,7 @@ export default function StaffManagement({ setActive }) {
                         className="text-xs text-gray-400 mt-1"
                         title={NOT_TRACKED}
                       >
-                        Today: — • This Week: — • Utilization: —{" "}
+                        Today: — • This Week: — • Utilisation: —{" "}
                         <span className="italic">({NOT_TRACKED})</span>
                       </p>
                     </div>
@@ -330,7 +330,7 @@ export default function StaffManagement({ setActive }) {
                     Month
                   </th>
                   <th className="text-center p-3" title={NOT_TRACKED}>
-                    Utilization
+                    Utilisation
                   </th>
                   <th className="text-center p-3">Satisfaction</th>
                 </tr>

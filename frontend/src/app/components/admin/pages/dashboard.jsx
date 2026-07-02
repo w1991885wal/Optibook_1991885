@@ -87,7 +87,7 @@ export default function DashboardPage() {
             <div className="flex flex-col gap-2">
               <div className="flex items-center justify-between">
                 <div>
-                  <p className="text-sm text-black mb-1">Clinic Utilization</p>
+                  <p className="text-sm text-black mb-1">Clinic Utilisation</p>
                   <p className="text-2xl font-bold">{utilization}%</p>
                 </div>
                 <div className="w-10 h-10 bg-[#FFD93D] rounded-sm flex items-center justify-center">
@@ -202,7 +202,7 @@ function Stats({ quickStats, staffsOverview, ai }) {
                 <p className="font-semibold">{staff.name}</p>
                 <div className="text-sm text-gray-500 flex flex-wrap gap-1">
                   Today: {staff.todayAppointments} appointments
-                  <span className="opacity-90">• Utilization: {staff.utilization}%</span>
+                  <span className="opacity-90">• Utilisation: {staff.utilization}%</span>
                   <span className="opacity-90">• No-show: {staff.noShowRate}%</span>
                 </div>
               </Card>
